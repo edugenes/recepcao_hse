@@ -1,3 +1,78 @@
+# Recepção HSE
+
+WebApp de recepção para hospitais/clínicas com cadastro de visitantes e controle de chaves. Backend em Node.js/Express com SQLite, frontend SPA em HTML/CSS/JS.
+
+## Recursos
+- Autenticação com JWT (usuário admin padrão: `admin@recepcao.com` / `admin123`).
+- Cadastro e listagem de visitantes, filtros e exportação.
+- Registro de entrada/saída de visitantes.
+- Módulo de Chaves:
+  - Cadastro de chaves (apenas admin).
+  - Retirada via modal com Nome, Setor, Cargo, Documento/Contato/Observação.
+  - Devolução e histórico por chave.
+- Segurança: Helmet com CSP ajustada para SPA; rate limiting; CORS.
+
+## Endpoints (REST)
+Autenticados com `Authorization: Bearer <token>` (exceto login e endpoints públicos)
+
+Auth
+- `POST /api/login` { email, senha }
+
+Visitantes
+- `POST /api/visitantes` (multipart; campos principais: nome, documento, setor_id, tipo, paciente_nome)
+- `GET /api/visitantes` (filtros: ativo, data_inicio, data_fim, setor_id, tipo, status, nome, documento, paciente, ordenar)
+- `PUT /api/visitantes/:id/saida`
+- `PUT /api/visitantes/:id` (admin)
+
+Usuários (admin)
+- `GET /api/usuarios`
+- `POST /api/usuarios`
+- `PUT /api/usuarios/:id`
+
+Setores/Pacientes
+- `GET /api/setores`
+- `GET /api/pacientes?setor_id=ID`
+
+Chaves
+- `GET /api/chaves`
+- `POST /api/chaves` (admin)
+- `POST /api/chaves/:id/retirar`
+- `POST /api/chaves/:id/devolver`
+- `GET /api/chaves/:id/historico`
+
+## Requisitos
+- Node.js 18+
+
+## Instalação e Execução
+```bash
+npm install
+# opcional: definir porta
+set PORT=3001  # Windows PowerShell: $env:PORT=3001
+npm start
+```
+Acesse: http://localhost:3000 (ou porta definida)
+
+## Credenciais de teste
+- Admin: `admin@recepcao.com` / `admin123`
+- Usuário: `user@recepcao.com` / `user123`
+
+## Estrutura
+- `server.js`: API Express + inicialização do DB (SQLite `recepcao.db`).
+- `public/index.html`: SPA do frontend.
+- `uploads/`: fotos dos visitantes.
+
+## Segurança
+- Helmet com CSP permissiva em dev para scripts inline e jsdelivr. Ajustar CSP para produção conforme necessidade.
+- Rate limiting básico (100 req/15 min).
+
+## Roadmap
+- Integração AD/LDAP para login corporativo.
+- Auditoria detalhada de ações administrativas.
+- Painel de relatórios avançados e gráficos.
+
+## Licença
+Uso interno HSE.
+
 # 🏥 Sistema de Recepção de Visitantes
 
 Sistema web para controle de entrada e saída de visitantes em hospitais, clínicas e instituições de saúde.
