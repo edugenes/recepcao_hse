@@ -345,48 +345,6 @@ app.put('/api/usuarios/:id', authenticateToken, (req, res) => {
   });
 });
 
-// Remover usuário (apenas admin)
-app.delete('/api/usuarios/:id', authenticateToken, (req, res) => {
-  const alvoId = parseInt(req.params.id, 10);
-  const userId = req.user.id;
-  
-  if (!alvoId) return res.status(400).json({ error: 'ID inválido' });
-  
-  // Verificar se não está tentando remover a si mesmo
-  if (alvoId === userId) {
-    return res.status(400).json({ error: 'Você não pode remover sua própria conta' });
-  }
-
-  db.get(`SELECT id, email, role FROM usuarios WHERE id = ?`, [req.user.id], (err, row) => {
-    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
-    const isAdmin = row && ((row.role === 'admin') || (row.email && row.email.toLowerCase() === 'admin@recepcao.com') || row.id === 1);
-    if (!isAdmin) return res.status(403).json({ error: 'Acesso negado' });
-
-    // Verificar se é o último admin
-    db.get('SELECT COUNT(*) as count FROM usuarios WHERE role = "admin"', [], (err2, result) => {
-      if (err2) {
-        return res.status(500).json({ error: 'Erro ao verificar permissões' });
-      }
-
-      if (result.count <= 1) {
-        return res.status(400).json({ error: 'Não é possível remover o último administrador' });
-      }
-
-      db.run('DELETE FROM usuarios WHERE id = ?', [alvoId], function(err3) {
-        if (err3) {
-          return res.status(500).json({ error: 'Erro ao remover usuário' });
-        }
-
-        if (this.changes === 0) {
-          return res.status(404).json({ error: 'Usuário não encontrado' });
-        }
-
-        res.json({ message: 'Usuário removido com sucesso' });
-      });
-    });
-  });
-});
-
 app.get('/api/setores', (req, res) => {
   db.all('SELECT * FROM setores', (err, rows) => {
     if (err) {
@@ -574,35 +532,6 @@ app.get('/api/visitantes', (req, res) => {
   });
 });
 
-// Buscar visitante específico por ID
-app.get('/api/visitantes/:id', authenticateToken, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  
-  if (!id) {
-    return res.status(400).json({ error: 'ID inválido' });
-  }
-  
-  const query = `
-    SELECT v.*, s.nome as setor_nome, p.nome as paciente_nome 
-    FROM visitantes v 
-    LEFT JOIN setores s ON v.setor_id = s.id 
-    LEFT JOIN pacientes p ON v.paciente_id = p.id
-    WHERE v.id = ?
-  `;
-  
-  db.get(query, [id], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    if (!row) {
-      return res.status(404).json({ error: 'Visitante não encontrado' });
-    }
-    
-    res.json(row);
-  });
-});
-
 // === Chaves: Helpers ===
 const ensureAdmin = (req, res, next) => {
   db.get(`SELECT id, email, role FROM usuarios WHERE id = ?`, [req.user.id], (err, row) => {
@@ -689,6 +618,146 @@ app.get('/api/chaves/:id/historico', authenticateToken, (req, res) => {
   });
 });
 
+// === DASHBOARD: Estatísticas ===
+// Estatísticas gerais do dashboard
+app.get('/api/dashboard/stats', authenticateToken, (req, res) => {
+  const { periodo = 'hoje' } = req.query;
+  
+  let dataFiltro = '';
+  switch (periodo) {
+    case 'hoje':
+      dataFiltro = "date(entrada) = date('now')";
+      break;
+    case 'semana':
+      dataFiltro = "date(entrada) >= date('now', '-7 days')";
+      break;
+    case 'mes':
+      dataFiltro = "date(entrada) >= date('now', '-30 days')";
+      break;
+    case 'ano':
+      dataFiltro = "date(entrada) >= date('now', '-365 days')";
+      break;
+    default:
+      dataFiltro = "date(entrada) = date('now')";
+  }
+
+  // Estatísticas de visitantes
+  const visitantesQuery = `
+    SELECT 
+      COUNT(*) as total_visitantes,
+      COUNT(CASE WHEN saida IS NULL THEN 1 END) as visitantes_ativos,
+      COUNT(CASE WHEN saida IS NOT NULL THEN 1 END) as visitantes_finalizados,
+      COUNT(CASE WHEN tipo = 'visitante' THEN 1 END) as visitantes_tipo,
+      COUNT(CASE WHEN tipo = 'fornecedor' THEN 1 END) as fornecedores,
+      COUNT(CASE WHEN tipo = 'acompanhante' THEN 1 END) as acompanhantes
+    FROM visitantes 
+    WHERE ${dataFiltro}
+  `;
+
+  // Estatísticas de chaves
+  const chavesQuery = `
+    SELECT 
+      COUNT(*) as total_chaves,
+      COUNT(CASE WHEN ativa = 1 THEN 1 END) as chaves_ativas,
+      COUNT(CASE WHEN m.id IS NOT NULL THEN 1 END) as chaves_emprestadas,
+      COUNT(CASE WHEN m.id IS NULL AND c.ativa = 1 THEN 1 END) as chaves_disponiveis
+    FROM chaves c
+    LEFT JOIN (
+      SELECT DISTINCT chave_id, id FROM chaves_movimentacoes WHERE devolvido_em IS NULL
+    ) m ON m.chave_id = c.id
+  `;
+
+  // Estatísticas por setor
+  const setoresQuery = `
+    SELECT 
+      s.nome as setor,
+      COUNT(v.id) as total_visitantes,
+      COUNT(CASE WHEN v.saida IS NULL THEN 1 END) as visitantes_ativos
+    FROM setores s
+    LEFT JOIN visitantes v ON s.id = v.setor_id AND ${dataFiltro}
+    GROUP BY s.id, s.nome
+    ORDER BY total_visitantes DESC
+  `;
+
+  // Visitantes por hora (últimas 24h)
+  const visitantesHoraQuery = `
+    SELECT 
+      strftime('%H', entrada) as hora,
+      COUNT(*) as total
+    FROM visitantes 
+    WHERE entrada >= datetime('now', '-24 hours')
+    GROUP BY strftime('%H', entrada)
+    ORDER BY hora
+  `;
+
+  db.get(visitantesQuery, [], (err1, visitantesStats) => {
+    if (err1) return res.status(500).json({ error: 'Erro ao buscar estatísticas de visitantes' });
+    
+    db.get(chavesQuery, [], (err2, chavesStats) => {
+      if (err2) return res.status(500).json({ error: 'Erro ao buscar estatísticas de chaves' });
+      
+      db.all(setoresQuery, [], (err3, setoresStats) => {
+        if (err3) return res.status(500).json({ error: 'Erro ao buscar estatísticas por setor' });
+        
+        db.all(visitantesHoraQuery, [], (err4, visitantesHoraStats) => {
+          if (err4) return res.status(500).json({ error: 'Erro ao buscar estatísticas por hora' });
+          
+          res.json({
+            visitantes: visitantesStats,
+            chaves: chavesStats,
+            setores: setoresStats,
+            visitantesPorHora: visitantesHoraStats,
+            periodo: periodo
+          });
+        });
+      });
+    });
+  });
+});
+
+// Gráfico de visitantes por período
+app.get('/api/dashboard/visitantes-periodo', authenticateToken, (req, res) => {
+  const { dias = 7 } = req.query;
+  
+  const query = `
+    SELECT 
+      date(entrada) as data,
+      COUNT(*) as total,
+      COUNT(CASE WHEN saida IS NULL THEN 1 END) as ativos,
+      COUNT(CASE WHEN saida IS NOT NULL THEN 1 END) as finalizados
+    FROM visitantes 
+    WHERE date(entrada) >= date('now', '-${dias} days')
+    GROUP BY date(entrada)
+    ORDER BY data DESC
+  `;
+  
+  db.all(query, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Erro ao buscar dados do período' });
+    res.json(rows);
+  });
+});
+
+// Top visitantes mais frequentes
+app.get('/api/dashboard/visitantes-frequentes', authenticateToken, (req, res) => {
+  const { limite = 10 } = req.query;
+  
+  const query = `
+    SELECT 
+      nome,
+      documento,
+      COUNT(*) as total_visitas,
+      MAX(entrada) as ultima_visita
+    FROM visitantes 
+    GROUP BY nome, documento
+    ORDER BY total_visitas DESC
+    LIMIT ?
+  `;
+  
+  db.all(query, [limite], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Erro ao buscar visitantes frequentes' });
+    res.json(rows);
+  });
+});
 app.put('/api/visitantes/:id/saida', (req, res) => {
   const { id } = req.params;
 
@@ -774,7 +843,7 @@ app.use('/uploads', express.static('uploads'));
 
 // Rota para servir a aplicação
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index_dashboard.html'));
 });
 
 app.listen(PORT, () => {
