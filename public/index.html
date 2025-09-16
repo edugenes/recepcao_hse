@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Recepção de Visitantes</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0D47A1 0%, #083B8A 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0F52BA 0%, #0B3E91 100%);
+            color: white;
+            padding: 30px 30px 30px 150px; /* espaço para a logo à esquerda */
+            text-align: center;
+            position: relative;
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center; /* garante centralização perfeita do conteúdo */
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .header-logo {
+            position: absolute;
+            left: 24px;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 72px; /* aumenta para ocupar melhor o espaço */
+            max-width: 240px;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        }
+
+        @media (max-width: 640px) {
+            .header { padding-left: 110px; min-height: 80px; }
+            .header-logo { height: 56px; }
+        }
+
+        .nav {
+            background: #f8fafc;
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            background: #0F52BA;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            background: #0B3E91;
+            transform: translateY(-2px);
+        }
+
+        .nav-btn.active {
+            background: #059669;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .radio-row {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+            padding-top: 6px;
+        }
+
+        .radio-row label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .radio-row input[type="radio"] {
+            margin: 0;
+        }
+
+        .btn {
+            background: #0F52BA;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #0B3E91;
+        }
+
+        .btn-success {
+            background: #0B8457;
+        }
+
+        .btn-success:hover {
+            background: #096B47;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        
+
+        .visitor-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .visitor-photo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #f3f4f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: #6b7280;
+        }
+
+        .visitor-info {
+            flex: 1;
+        }
+
+        .visitor-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 5px;
+        }
+
+        .visitor-details {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .visitor-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Modal simples */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .modal-overlay.hidden { display: none !important; }
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 560px;
+            padding: 20px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.2);
+        }
+
+        /* Login */
+        .login-wrapper { display:flex; justify-content:center; }
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.15);
+        }
+        .login-actions { display:flex; gap:12px; justify-content:space-between; align-items:center; }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .webcam-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .webcam-video {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .captured-photo {
+            max-width: 200px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .nav-buttons {
+                flex-direction: column;
+            }
+            
+            .visitor-card {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+        <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="/uploads/hse-logo.png" alt="HSE" class="header-logo" onerror="this.classList.add('hidden')">
+            <h1>🏥 Sistema de Recepção</h1>
+            <p id="headerSubtitle">Controle de visitantes para hospitais e clínicas</p>
+        </div>
+
+        <div class="nav" id="mainNav">
+            <div class="nav-buttons">
+                <button class="nav-btn active" onclick="showSection('cadastro', this)">Cadastrar Visitante</button>
+                <button class="nav-btn" onclick="showSection('visitantes', this)">Visitantes Ativos</button>
+                <button class="nav-btn" onclick="showSection('relatorios', this)">Relatórios</button>
+                <button class="nav-btn" onclick="showSection('chaves', this)">Chaves</button>
+                
+                <button id="adminBtn" class="nav-btn hidden" onclick="showSection('admin', this)">Admin</button>
+                <button class="nav-btn" onclick="logout()">Sair</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Login -->
+            <div id="login" class="section">
+                <div class="login-wrapper">
+                    <div class="login-card">
+                        <h2 style="text-align:center; margin-bottom:16px;">Entrar</h2>
+                        <div class="form-group">
+                            <label for="loginEmail">Login</label>
+                            <input type="text" id="loginEmail" autocomplete="off" autocapitalize="off" spellcheck="false">
+                        </div>
+                        <div class="form-group">
+                            <label for="loginSenha">Senha</label>
+                            <input type="password" id="loginSenha" autocomplete="new-password">
+                        </div>
+                        <div class="login-actions">
+                            <button class="btn" onclick="doLogin()" style="width:100%">Entrar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+            <!-- Cadastro de Visitante -->
+            <div id="cadastro" class="section hidden">
+                <h2>Cadastrar Visitante</h2>
+                <div class="card">
+                    <form id="cadastroForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="nome">Nome Completo *</label>
+                                <input type="text" id="nome" name="nome" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="documento">Documento (CPF/RG) *</label>
+                                <input type="text" id="documento" name="documento" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Tipo de Registro *</label>
+                                <div class="radio-row">
+                                    <label>
+                                        <input type="radio" name="tipo" value="visitante" checked onchange="onTipoChange()">
+                                        Visitante
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="tipo" value="fornecedor" onchange="onTipoChange()">
+                                        Fornecedor
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="tipo" value="acompanhante" onchange="onTipoChange()">
+                                        Acompanhante
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="telefone">Telefone</label>
+                                <input type="tel" id="telefone" name="telefone">
+                            </div>
+                            <div class="form-group">
+                                <label for="setor">Setor de Destino *</label>
+                                <select id="setor" name="setor_id" required onchange="loadPacientes()">
+                                    <option value="">Selecione um setor</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group" id="pacienteGroup">
+                            <label for="pacienteNome">Paciente a ser Visitado *</label>
+                            <input type="text" id="pacienteNome" required list="pacientesList" placeholder="Digite o nome do paciente">
+                            <datalist id="pacientesList"></datalist>
+                        </div>
+
+                        <div class="form-group" id="fotoGroup">
+                            <label>Foto do Visitante</label>
+                            <div class="webcam-container">
+                                <video id="webcam" class="webcam-video hidden" autoplay></video>
+                                <canvas id="canvas" class="hidden"></canvas>
+                                <img id="capturedPhoto" class="captured-photo hidden" alt="Foto capturada">
+                                
+                                <div id="webcamControls">
+                                    <button type="button" class="btn" id="btnStartWebcam" onclick="startWebcam()">Capturar Foto</button>
+                                </div>
+                                
+                                <div id="photoControls" class="hidden">
+                                    <button type="button" class="btn" onclick="capturePhoto()">Tirar Foto</button>
+                                    <button type="button" class="btn btn-danger" onclick="stopWebcam()">Cancelar</button>
+                                </div>
+                                
+                                <div id="retakeControls" class="hidden">
+                                    <button type="button" class="btn" onclick="retakePhoto()">Tirar Nova Foto</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        
+
+                        <button type="submit" class="btn btn-success">Cadastrar Visitante</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Visitantes Ativos -->
+            <div id="visitantes" class="section hidden">
+                <h2>Visitantes Ativos</h2>
+                <div class="card">
+                    <div class="nav-buttons" style="margin-bottom: 20px;">
+                        <button class="nav-btn active" onclick="loadVisitantes(true)">Apenas Ativos</button>
+                        <button class="nav-btn" onclick="loadVisitantes(false)">Todos</button>
+                    </div>
+                    <div id="visitantesList"></div>
+                </div>
+            </div>
+
+            <!-- Relatórios -->
+            <div id="relatorios" class="section hidden">
+                <h2>Relatórios</h2>
+                <div class="card">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Data Inicial</label>
+                            <input type="date" id="fDataInicio">
+                        </div>
+                        <div class="form-group">
+                            <label>Data Final</label>
+                            <input type="date" id="fDataFim">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Setor</label>
+                            <select id="fSetor">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo</label>
+                            <select id="fTipo">
+                                <option value="">Todos</option>
+                                <option value="visitante">Visitante</option>
+                                <option value="fornecedor">Fornecedor</option>
+                                <option value="acompanhante">Acompanhante</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="fStatus">
+                                <option value="">Todos</option>
+                                <option value="ativo">Ativo</option>
+                                <option value="finalizado">Finalizado</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Nome</label>
+                            <input type="text" id="fNome" placeholder="Nome do visitante">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Documento</label>
+                            <input type="text" id="fDocumento" placeholder="CPF/RG">
+                        </div>
+                        <div class="form-group">
+                            <label>Paciente</label>
+                            <input type="text" id="fPaciente" placeholder="Nome do paciente">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Ordenar por</label>
+                            <select id="fOrdenar">
+                                <option value="entrada_desc">Entrada (recente primeiro)</option>
+                                <option value="entrada_asc">Entrada (antiga primeiro)</option>
+                                <option value="nome_asc">Nome A→Z</option>
+                                <option value="nome_desc">Nome Z→A</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <div>
+                                <button class="btn" type="button" onclick="buscarRelatorio()">Buscar</button>
+                                <button class="btn" type="button" onclick="exportarCSV()">Exportar CSV</button>
+                                <button class="btn" type="button" onclick="exportarPDF()">Exportar PDF</button>
+                                <button class="btn" type="button" onclick="window.print()">Imprimir</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div id="relatorioResumo" style="margin-bottom:10px; color:#374151;"></div>
+                    <div style="overflow:auto;">
+                        <table id="relatorioTabela" style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Nome</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Documento</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Tipo</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Setor</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Paciente</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Entrada</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Saída</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chaves -->
+            <div id="chaves" class="section hidden">
+                <h2>Controle de Chaves</h2>
+                <div class="card" style="max-width:980px;">
+                    <div id="chavesMsg" class="" style="margin-bottom:10px;"></div>
+                    <div id="chavesList">Carregando...</div>
+                </div>
+                <div id="chavesAdmin" class="card hidden" style="max-width:720px;">
+                    <h3>Criar Nova Chave (admin)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Descrição</label>
+                            <input type="text" id="cDescricao">
+                        </div>
+                        <div class="form-group">
+                            <label>Localização</label>
+                            <input type="text" id="cLocalizacao">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Ativa</label>
+                            <select id="cAtiva">
+                                <option value="1">Sim</option>
+                                <option value="0">Não</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <button class="btn btn-success" onclick="criarChave()">Criar Chave</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Modal Retirada -->
+                <div id="modalRetirada" class="modal-overlay hidden">
+                    <div class="modal">
+                        <h3 style="margin-bottom:12px;">Retirar Chave</h3>
+                        <p id="mDesc" style="margin-bottom:12px; color:#374151;"></p>
+                        <div class="form-group">
+                            <label>Nome de quem retira</label>
+                            <input type="text" id="mNome">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Setor</label>
+                                <input type="text" id="mSetor" placeholder="Ex.: Portaria, Manutenção">
+                            </div>
+                            <div class="form-group">
+                                <label>Cargo/Função</label>
+                                <input type="text" id="mCargo" placeholder="Ex.: Porteiro, Técnico">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Documento (opcional)</label>
+                                <input type="text" id="mDocumento">
+                            </div>
+                            <div class="form-group">
+                                <label>Contato (opcional)</label>
+                                <input type="text" id="mContato">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Observação (opcional)</label>
+                            <input type="text" id="mObs">
+                        </div>
+                        <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:10px;">
+                            <button class="btn" onclick="fecharModalRetirada()">Cancelar</button>
+                            <button class="btn btn-success" onclick="confirmarRetirada()">Confirmar Retirada</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin: cadastro de usuários -->
+            <div id="admin" class="section hidden">
+                <h2>Admin - Usuários</h2>
+                <div class="card" style="max-width:720px;">
+                    <form id="usuarioForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Nome</label>
+                                <input type="text" id="uNome" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" id="uEmail" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Senha</label>
+                                <input type="password" id="uSenha" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Papel</label>
+                                <select id="uRole">
+                                    <option value="user">Usuário</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success">Criar Usuário</button>
+                    </form>
+                    <div id="adminMsg" style="margin-top:12px;"></div>
+                </div>
+                <div class="card" style="max-width:900px;">
+                    <h3>Usuários cadastrados</h3>
+                    <div style="overflow:auto; margin-top:10px;">
+                        <table id="usuariosTabela" style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Nome</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Login</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Email</th>
+                                    <th style="text-align:left; padding:8px; border-bottom:1px solid #e5e7eb;">Papel</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+        let currentStream = null;
+        let capturedImageData = null;
+
+        // Verificar autenticação
+        function decodeJwtPayload(t) {
+            try {
+                const base64Url = t.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+                return JSON.parse(jsonPayload);
+            } catch { return null; }
+        }
+
+        function isTokenValid(t) {
+            try {
+                if (!t) return false;
+                const payload = decodeJwtPayload(t);
+                if (!payload || !payload.exp) return false;
+                const now = Math.floor(Date.now() / 1000);
+                return payload.exp > now;
+            } catch {
+                return false;
+            }
+        }
+
+        if (!isTokenValid(token)) {
+            localStorage.removeItem('token');
+            token = null;
+            document.getElementById('adminBtn').classList.add('hidden');
+            showSection('login');
+        } else {
+            // token válido: liberar botão admin conforme role
+            const payload = decodeJwtPayload(token);
+            if (payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'))) {
+                document.getElementById('adminBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('adminBtn').classList.add('hidden');
+            }
+            showSection('cadastro');
+        }
+
+        function doLogin() {
+            const email = (document.getElementById('loginEmail')?.value || '').trim();
+            const senha = (document.getElementById('loginSenha')?.value || '').trim();
+            if (!email || !senha) {
+                alert('Informe email e senha');
+                return;
+            }
+            fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, senha })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.token) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    // liberar botão admin se role=admin
+                    const payload = decodeJwtPayload(token);
+                    if (payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'))) {
+                        document.getElementById('adminBtn').classList.remove('hidden');
+                    } else {
+                        document.getElementById('adminBtn').classList.add('hidden');
+                    }
+                    showSection('cadastro');
+                } else {
+                    alert('Credenciais inválidas');
+                }
+            })
+            .catch(() => alert('Erro ao fazer login'));
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            location.reload();
+        }
+
+        function showSection(sectionName, el) {
+            // Esconder todas as seções
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.add('hidden');
+            });
+            
+            // Remover classe active de todos os botões
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Mostrar seção selecionada
+            document.getElementById(sectionName).classList.remove('hidden');
+            
+            // Mostrar/ocultar navegação conforme seção
+            const navEl = document.getElementById('mainNav');
+            if (navEl) {
+                if (sectionName === 'login') {
+                    navEl.classList.add('hidden');
+                } else {
+                    navEl.classList.remove('hidden');
+                }
+            }
+
+            // Adicionar classe active ao botão clicado
+            if (el && el.classList) {
+                el.classList.add('active');
+            } else {
+                const btn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.textContent.includes(sectionName === 'cadastro' ? 'Cadastrar' : 'Visitantes'));
+                if (btn) btn.classList.add('active');
+            }
+            
+            // Carregar dados específicos da seção
+            if (sectionName === 'visitantes') {
+                loadVisitantes(true);
+            } else if (sectionName === 'relatorios') {
+                prepararFiltrosRelatorios();
+            } else if (sectionName === 'chaves') {
+                loadChaves();
+                const payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+                const isAdmin = payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'));
+                document.getElementById('chavesAdmin').classList.toggle('hidden', !isAdmin);
+            }
+            if (sectionName === 'admin') {
+                if (!ensureAdminOrRedirect()) return;
+                carregarUsuarios();
+            }
+        }
+
+        // loadDashboard removido
+
+        function loadSetores() {
+            fetch('/api/setores', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(setores => {
+                const select = document.getElementById('setor');
+                select.innerHTML = '<option value="">Selecione um setor</option>';
+                setores.forEach(setor => {
+                    select.innerHTML += `<option value="${setor.id}">${setor.nome}</option>`;
+                });
+
+                // preencher também filtros de relatórios
+                const fSetor = document.getElementById('fSetor');
+                if (fSetor) {
+                    fSetor.innerHTML = '<option value="">Todos</option>';
+                    setores.forEach(setor => {
+                        fSetor.innerHTML += `<option value="${setor.id}">${setor.nome}</option>`;
+                    });
+                }
+            });
+        }
+
+        function prepararFiltrosRelatorios() {
+            // define datas padrão (últimos 7 dias)
+            const hoje = new Date();
+            const fim = hoje.toISOString().slice(0,10);
+            const inicioDate = new Date(hoje); inicioDate.setDate(inicioDate.getDate() - 7);
+            const inicio = inicioDate.toISOString().slice(0,10);
+            const fDataInicio = document.getElementById('fDataInicio');
+            const fDataFim = document.getElementById('fDataFim');
+            if (fDataInicio && !fDataInicio.value) fDataInicio.value = inicio;
+            if (fDataFim && !fDataFim.value) fDataFim.value = fim;
+        }
+
+        function buscarRelatorio() {
+            const params = new URLSearchParams();
+            const di = document.getElementById('fDataInicio').value;
+            const df = document.getElementById('fDataFim').value;
+            const setor = document.getElementById('fSetor').value;
+            const tipo = document.getElementById('fTipo').value;
+            const status = document.getElementById('fStatus').value;
+            const nome = document.getElementById('fNome').value.trim();
+            const documento = document.getElementById('fDocumento').value.trim();
+            const paciente = document.getElementById('fPaciente').value.trim();
+            const ordenar = document.getElementById('fOrdenar').value;
+
+            if (di) params.append('data_inicio', di);
+            if (df) params.append('data_fim', df);
+            if (setor) params.append('setor_id', setor);
+            if (tipo) params.append('tipo', tipo);
+            if (status) params.append('status', status);
+            if (nome) params.append('nome', nome);
+            if (documento) params.append('documento', documento);
+            if (paciente) params.append('paciente', paciente);
+            if (ordenar) params.append('ordenar', ordenar);
+
+            fetch('/api/visitantes?' + params.toString(), {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(registros => renderRelatorio(registros));
+        }
+
+        function renderRelatorio(registros) {
+            const tbody = document.querySelector('#relatorioTabela tbody');
+            if (!tbody) return;
+            tbody.innerHTML = (registros || []).map(r => `
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.nome}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.documento || ''}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.tipo === 'fornecedor' ? 'Fornecedor' : (r.tipo === 'acompanhante' ? 'Acompanhante' : 'Visitante')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.setor_nome || ''}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.paciente_nome || ''}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${new Date(r.entrada).toLocaleString('pt-BR')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${r.saida ? new Date(r.saida).toLocaleString('pt-BR') : ''}</td>
+                </tr>
+            `).join('');
+
+            const resumo = document.getElementById('relatorioResumo');
+            const total = (registros || []).length;
+            const ativos = (registros || []).filter(r => !r.saida).length;
+            resumo.textContent = `Total: ${total} | Ativos: ${ativos} | Finalizados: ${total - ativos}`;
+        }
+
+        function exportarCSV() {
+            const rows = [["Nome","Documento","Tipo","Setor","Paciente","Entrada","Saída"]];
+            const dados = Array.from(document.querySelectorAll('#relatorioTabela tbody tr')).map(tr =>
+                Array.from(tr.children).map(td => td.textContent.replace(/\n/g,' ').trim())
+            );
+            rows.push(...dados);
+            const csv = rows.map(r => r.map(v => '"' + (v || '').replace(/"/g,'""') + '"').join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'relatorio_visitantes.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Exibir botão Admin se token for de admin (ao recarregar)
+        try {
+            if (token) {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.role === 'admin') {
+                    document.getElementById('adminBtn').classList.remove('hidden');
+                }
+            }
+        } catch {}
+
+        // Proteger acesso à seção admin ao trocar de seção
+        function ensureAdminOrRedirect() {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const isAdmin = payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'));
+                if (!isAdmin) {
+                    alert('Acesso restrito a administradores');
+                    showSection('cadastro');
+                    return false;
+                }
+                return true;
+            } catch {
+                alert('Sessão inválida');
+                logout();
+                return false;
+            }
+        }
+
+        let pacientesCache = [];
+        function loadPacientes() {
+            const setorId = document.getElementById('setor').value;
+            const datalist = document.getElementById('pacientesList');
+            const inputPaciente = document.getElementById('pacienteNome');
+            
+            datalist.innerHTML = '';
+            pacientesCache = [];
+            inputPaciente.value = '';
+            
+            if (!setorId) {
+                return;
+            }
+
+            fetch(`/api/pacientes?setor_id=${setorId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(pacientes => {
+                pacientesCache = pacientes || [];
+                datalist.innerHTML = pacientesCache
+                    .map(p => `<option value="${p.nome}"></option>`)
+                    .join('');
+            });
+        }
+
+        function onTipoChange() {
+            const tipo = document.querySelector('input[name="tipo"]:checked').value;
+            const isFornecedor = tipo === 'fornecedor';
+            const exigePaciente = (tipo === 'visitante' || tipo === 'acompanhante');
+            
+            // Campos a desabilitar quando for fornecedor
+            const telefone = document.getElementById('telefone');
+            const pacienteNome = document.getElementById('pacienteNome');
+            const btnStartWebcam = document.getElementById('btnStartWebcam');
+            
+            telefone.disabled = isFornecedor;
+            pacienteNome.disabled = isFornecedor ? true : false;
+            btnStartWebcam.disabled = isFornecedor;
+            
+            // Regras de required
+            pacienteNome.required = exigePaciente;
+        }
+
+        function startWebcam() {
+            try { stopWebcam(); } catch {}
+            const openStream = (constraints) => navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    currentStream = stream;
+                    const video = document.getElementById('webcam');
+                    video.srcObject = stream;
+                    video.classList.remove('hidden');
+                    document.getElementById('webcamControls').classList.add('hidden');
+                    document.getElementById('photoControls').classList.remove('hidden');
+                });
+
+            navigator.mediaDevices.enumerateDevices()
+                .then(devices => {
+                    const cameras = devices.filter(d => d.kind === 'videoinput');
+                    if (cameras.length === 0) {
+                        throw new Error('Nenhuma câmera encontrada');
+                    }
+                    const firstId = cameras[0].deviceId;
+                    return openStream({ video: { deviceId: firstId ? { exact: firstId } : undefined } });
+                })
+                .catch(() => {
+                    // Fallback para qualquer câmera disponível
+                    return openStream({ video: true });
+                })
+                .catch(err => {
+                    let hint = '';
+                    if (err && /not found|device not found|overconstrained/i.test(err.message || '')) {
+                        hint = '\nDica: verifique se há uma câmera conectada e não está em uso por outro app (Teams/Zoom).';
+                    } else if (err && /permission|permiss/i.test(err.message || '')) {
+                        hint = '\nDica: permita o acesso à câmera no navegador (cadeado ao lado do endereço).';
+                    }
+                    alert('Erro ao acessar a webcam: ' + err.message + hint);
+                });
+        }
+
+        function capturePhoto() {
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            
+            capturedImageData = canvas.toDataURL('image/jpeg');
+            
+            const img = document.getElementById('capturedPhoto');
+            img.src = capturedImageData;
+            img.classList.remove('hidden');
+            
+            stopWebcam();
+            document.getElementById('retakeControls').classList.remove('hidden');
+        }
+
+        function stopWebcam() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            
+            document.getElementById('webcam').classList.add('hidden');
+            document.getElementById('webcamControls').classList.remove('hidden');
+            document.getElementById('photoControls').classList.add('hidden');
+        }
+
+        function retakePhoto() {
+            capturedImageData = null;
+            document.getElementById('capturedPhoto').classList.add('hidden');
+            document.getElementById('retakeControls').classList.add('hidden');
+            startWebcam();
+        }
+
+        function loadVisitantes(apenasAtivos) {
+            const url = apenasAtivos ? '/api/visitantes?ativo=true' : '/api/visitantes';
+            
+            fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(visitantes => {
+                const container = document.getElementById('visitantesList');
+                
+                if (visitantes.length === 0) {
+                    container.innerHTML = '<p>Nenhum visitante encontrado.</p>';
+                    return;
+                }
+                
+                const payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+                const isAdmin = payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'));
+                container.innerHTML = visitantes.map(visitante => `
+                    <div class="visitor-card">
+                        <div class="visitor-photo">
+                            ${visitante.foto_url ? 
+                                `<img src="${visitante.foto_url}" alt="${visitante.nome}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">` :
+                                visitante.nome.charAt(0).toUpperCase()
+                            }
+                        </div>
+                        <div class="visitor-info">
+                            <div class="visitor-name">${visitante.nome}</div>
+                            <div class="visitor-details">
+                                <strong>Documento:</strong> ${visitante.documento}<br>
+                                <strong>Setor:</strong> ${visitante.setor_nome}<br>
+                                <strong>Tipo:</strong> ${visitante.tipo === 'fornecedor' ? 'Fornecedor' : (visitante.tipo === 'acompanhante' ? 'Acompanhante' : 'Visitante')}<br>
+                                ${visitante.tipo === 'fornecedor' ? '' : `<strong>Paciente:</strong> ${visitante.paciente_nome}<br>`}
+                                <strong>Entrada:</strong> ${new Date(visitante.entrada).toLocaleString('pt-BR')}
+                                ${visitante.saida ? `<br><strong>Saída:</strong> ${new Date(visitante.saida).toLocaleString('pt-BR')}` : ''}
+                            </div>
+                        </div>
+                        <div>
+                            <span class="visitor-status ${visitante.saida ? 'status-inactive' : 'status-active'}">
+                                ${visitante.saida ? 'Finalizado' : 'Ativo'}
+                            </span>
+                            ${!visitante.saida ? `
+                                <button class="btn btn-danger" onclick="registrarSaida(${visitante.id})" style="margin-top: 10px;">
+                                    Registrar Saída
+                                </button>
+                            ` : ''}
+                            
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function registrarSaida(visitanteId) {
+            if (confirm('Confirmar saída do visitante?')) {
+                fetch(`/api/visitantes/${visitanteId}/saida`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.message) {
+                        loadVisitantes(true);
+                    } else {
+                        alert('Erro: ' + data.error);
+                    }
+                });
+            }
+        }
+
+        // Estado de edição
+        let editandoId = null;
+
+        function editarVisitante(id) {
+            // Buscar registro atual na API e preencher o formulário
+            fetch(`/api/visitantes?ordenar=entrada_desc`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(lista => {
+                const v = (lista || []).find(x => x.id === id);
+                if (!v) { alert('Registro não encontrado'); return; }
+                editandoId = id;
+                showSection('cadastro');
+                document.getElementById('nome').value = v.nome || '';
+                document.getElementById('documento').value = v.documento || '';
+                document.getElementById('telefone').value = v.telefone || '';
+                document.getElementById('setor').value = v.setor_id || '';
+                // Ajustar tipo e paciente
+                const tipo = v.tipo || 'visitante';
+                const el = document.querySelector(`input[name="tipo"][value="${tipo}"]`);
+                if (el) el.checked = true;
+                onTipoChange();
+                if (tipo !== 'fornecedor') {
+                    document.getElementById('pacienteNome').value = v.paciente_nome || '';
+                } else {
+                    document.getElementById('pacienteNome').value = '';
+                }
+                // Mudar rótulo do botão para Salvar
+                const submitBtn = document.querySelector('#cadastroForm button[type="submit"]');
+                if (submitBtn) submitBtn.textContent = 'Salvar Alterações';
+            });
+        }
+
+        // Formulário de cadastro
+        document.getElementById('cadastroForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('nome', document.getElementById('nome').value);
+            formData.append('documento', document.getElementById('documento').value);
+            formData.append('telefone', document.getElementById('telefone').value);
+            formData.append('setor_id', document.getElementById('setor').value);
+            const tipo = document.querySelector('input[name="tipo"]:checked').value;
+            formData.append('tipo', tipo);
+            
+            // Enviar nome do paciente (backend localizará/criará o registro)
+            if (tipo === 'visitante' || tipo === 'acompanhante') {
+                const pacienteNome = document.getElementById('pacienteNome').value.trim();
+                if (!pacienteNome) {
+                    alert('Informe o nome do paciente.');
+                    return;
+                }
+                formData.append('paciente_nome', pacienteNome);
+            }
+            
+            // Adicionar digital se foi capturada
+            // digital removida
+
+            if (capturedImageData) {
+                // Converter base64 para blob
+                fetch(capturedImageData)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        formData.append('foto', blob, 'foto.jpg');
+                        submitForm(formData);
+                    });
+            } else {
+                submitForm(formData);
+            }
+        });
+
+        function submitForm(formData) {
+            if (editandoId) {
+                const obj = {};
+                formData.forEach((v, k) => { obj[k] = v; });
+                fetch(`/api/visitantes/${editandoId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(obj)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.id) {
+                        alert('Visitante atualizado com sucesso!');
+                        document.getElementById('cadastroForm').reset();
+                        const submitBtn = document.querySelector('#cadastroForm button[type="submit"]');
+                        if (submitBtn) submitBtn.textContent = 'Cadastrar Visitante';
+                        editandoId = null;
+                        loadVisitantes(true);
+                    } else {
+                        alert('Erro: ' + (data.error || 'Falha ao atualizar'));
+                    }
+                })
+                .catch(() => alert('Erro ao atualizar visitante'));
+                return;
+            }
+
+            fetch('/api/visitantes', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.nome) {
+                    alert('Visitante cadastrado com sucesso!');
+                    document.getElementById('cadastroForm').reset();
+                    capturedImageData = null;
+                    document.getElementById('capturedPhoto').classList.add('hidden');
+                    document.getElementById('retakeControls').classList.add('hidden');
+                } else {
+                    alert('Erro: ' + data.error);
+                }
+            })
+            .catch(() => {
+                alert('Erro ao cadastrar visitante');
+            });
+        }
+
+        // Admin - criar usuário
+        const usuarioForm = document.getElementById('usuarioForm');
+        if (usuarioForm) {
+            usuarioForm.addEventListener('submit', function(e){
+                e.preventDefault();
+                if (!ensureAdminOrRedirect()) return;
+                const nome = document.getElementById('uNome').value.trim();
+                const email = document.getElementById('uEmail').value.trim();
+                const senha = document.getElementById('uSenha').value.trim();
+                const role = document.getElementById('uRole').value;
+                const payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+                const isAdmin = payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'));
+                const metodo = (usuarioForm.getAttribute('data-edit-id')) ? 'PUT' : 'POST';
+                const url = (metodo === 'PUT') ? `/api/usuarios/${usuarioForm.getAttribute('data-edit-id')}` : '/api/usuarios';
+                const body = (metodo === 'PUT') ? { nome, email, role } : { nome, email, senha, role };
+
+                fetch(url, {
+                    method: metodo,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(body)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    const msg = document.getElementById('adminMsg');
+                    if (data.id || data.success) {
+                        msg.textContent = (metodo === 'PUT') ? 'Usuário atualizado com sucesso' : 'Usuário criado com sucesso';
+                        usuarioForm.reset();
+                        usuarioForm.removeAttribute('data-edit-id');
+                        document.querySelector('#usuarioForm button[type="submit"]').textContent = 'Criar Usuário';
+                        carregarUsuarios();
+                    } else {
+                        msg.textContent = 'Erro: ' + (data.error || 'Falha ao criar usuário');
+                    }
+                })
+                .catch(() => {
+                    const msg = document.getElementById('adminMsg');
+                    msg.textContent = 'Erro de comunicação';
+                });
+            });
+        }
+
+        function carregarUsuarios() {
+            fetch('/api/usuarios', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(res => res.json())
+            .then(users => {
+                const tbody = document.querySelector('#usuariosTabela tbody');
+                if (!tbody) return;
+                const payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+                const isAdmin = payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'));
+                tbody.innerHTML = (users || []).map(u => `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.nome}</td>
+                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.username || ''}</td>
+                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.email}</td>
+                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.role} ${isAdmin ? `<button class='btn' style='margin-left:8px' onclick='editarUsuario(${u.id},"${u.nome.replace(/"/g,'&quot;')}","${u.email}","${u.role}")'>Editar</button>` : ''}</td>
+                    </tr>
+                `).join('');
+            });
+        }
+
+        // Carregar dados no formulário de usuário para edição
+        function editarUsuario(id, nome, email, role) {
+            if (!ensureAdminOrRedirect()) return;
+            document.getElementById('uNome').value = nome || '';
+            document.getElementById('uEmail').value = email || '';
+            document.getElementById('uSenha').value = '';
+            document.getElementById('uRole').value = role || 'user';
+            const form = document.getElementById('usuarioForm');
+            form.setAttribute('data-edit-id', id);
+            document.querySelector('#usuarioForm button[type="submit"]').textContent = 'Salvar Alterações';
+            document.getElementById('adminMsg').textContent = '';
+        }
+
+        // (biometria removida)
+
+        // ===== DIGITAL NO CADASTRO =====
+        // digital removida
+
+        // Carregar dados iniciais
+        loadSetores();
+
+        // ====== CHAVES UI ======
+        function loadChaves() {
+            fetch('/api/chaves', { headers: { 'Authorization': `Bearer ${token}` } })
+                .then(r => r.json())
+                .then(lista => {
+                    const cont = document.getElementById('chavesList');
+                    if (!cont) return;
+                    if (!lista || lista.length === 0) { cont.innerHTML = '<p>Nenhuma chave cadastrada.</p>'; return; }
+                    cont.innerHTML = lista.map(c => `
+                        <div class="visitor-card">
+                            <div class="visitor-info">
+                                <div class="visitor-name">${c.descricao}</div>
+                                <div class="visitor-details">
+                                    <strong>Localização:</strong> ${c.localizacao || '-'}<br>
+                                    <strong>Status:</strong> ${c.emprestada ? 'Emprestada' : 'Disponível'}
+                                    ${c.emprestada ? ` | <strong>Com:</strong> ${c.retirado_por}${c.setor ? ' (' + c.setor + (c.cargo ? ' - ' + c.cargo : '') + ')' : ''} | <strong>Desde:</strong> ${new Date(c.retirada_em).toLocaleString('pt-BR')}` : ''}
+                                </div>
+                            </div>
+                            <div>
+                                ${c.emprestada ? `
+                                    <button class="btn" onclick="devolverChave(${c.id})">Devolver</button>
+                                    <button class="btn" onclick="verHistoricoChave(${c.id})" style="margin-left:8px;">Histórico</button>
+                                ` : `
+                                    <button class="btn" data-chid="${c.id}" data-desc="${(c.descricao||'').replace(/\"/g,'&quot;')})" onclick="abrirModalRetiradaFromBtn(this)">Retirar</button>
+                                    <button class="btn" onclick="verHistoricoChave(${c.id})" style="margin-left:8px;">Histórico</button>
+                                `}
+                            </div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function criarChave() {
+            const descricao = document.getElementById('cDescricao').value.trim();
+            const localizacao = document.getElementById('cLocalizacao').value.trim();
+            const ativa = parseInt(document.getElementById('cAtiva').value, 10);
+            if (!descricao) { alert('Informe a descrição'); return; }
+            fetch('/api/chaves', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ descricao, localizacao, ativa })
+            }).then(r => r.json()).then(resp => {
+                const msg = document.getElementById('chavesMsg');
+                if (resp.id) {
+                    msg.className = 'alert alert-success';
+                    msg.textContent = 'Chave criada com sucesso';
+                    document.getElementById('cDescricao').value = '';
+                    document.getElementById('cLocalizacao').value = '';
+                    document.getElementById('cAtiva').value = '1';
+                    loadChaves();
+                } else {
+                    msg.className = 'alert alert-error';
+                    msg.textContent = 'Erro: ' + (resp.error || 'Falha ao criar chave');
+                }
+            }).catch(() => {
+                const msg = document.getElementById('chavesMsg');
+                msg.className = 'alert alert-error';
+                msg.textContent = 'Erro de comunicação';
+            });
+        }
+
+        let retiradaContext = { id: null, desc: '' };
+        function abrirModalRetirada(id, descricao) {
+            retiradaContext = { id, desc: descricao || '' };
+            document.getElementById('mDesc').textContent = `Chave: ${retiradaContext.desc}`;
+            document.getElementById('mNome').value = '';
+            document.getElementById('mSetor').value = '';
+            document.getElementById('mCargo').value = '';
+            document.getElementById('mDocumento').value = '';
+            document.getElementById('mContato').value = '';
+            document.getElementById('mObs').value = '';
+            document.getElementById('modalRetirada').classList.remove('hidden');
+        }
+
+        function fecharModalRetirada() {
+            document.getElementById('modalRetirada').classList.add('hidden');
+        }
+
+        function confirmarRetirada() {
+            const id = retiradaContext.id;
+            const nome = document.getElementById('mNome').value.trim();
+            const setor = document.getElementById('mSetor').value.trim();
+            const cargo = document.getElementById('mCargo').value.trim();
+            const documento = document.getElementById('mDocumento').value.trim();
+            const contato = document.getElementById('mContato').value.trim();
+            const observacao = document.getElementById('mObs').value.trim();
+            if (!id) return;
+            if (!nome) { alert('Informe o nome de quem retira.'); return; }
+            fetch(`/api/chaves/${id}/retirar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ retirado_por: nome, setor, cargo, documento, contato, observacao })
+            }).then(r => r.json()).then(resp => {
+                if (resp.id) {
+                    fecharModalRetirada();
+                    loadChaves();
+                } else {
+                    alert('Erro: ' + (resp.error || 'Falha ao retirar'));
+                }
+            }).catch(() => alert('Erro de comunicação'));
+        }
+
+        function abrirModalRetiradaFromBtn(btn) {
+            try {
+                const id = parseInt(btn.getAttribute('data-chid'), 10);
+                const desc = btn.getAttribute('data-desc') || '';
+                if (id) abrirModalRetirada(id, desc);
+            } catch {}
+        }
+
+        function devolverChave(id) {
+            const devolvido_por = prompt('Quem está devolvendo? (opcional)') || '';
+            fetch(`/api/chaves/${id}/devolver`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ devolvido_por })
+            }).then(r => r.json()).then(resp => {
+                if (resp.success) {
+                    loadChaves();
+                } else {
+                    alert('Erro: ' + (resp.error || 'Falha ao devolver'));
+                }
+            }).catch(() => alert('Erro de comunicação'));
+        }
+
+        function verHistoricoChave(id) {
+            fetch(`/api/chaves/${id}/historico`, { headers: { 'Authorization': `Bearer ${token}` } })
+                .then(r => r.json())
+                .then(hist => {
+                    const linhas = (hist || []).map(h => `- ${new Date(h.retirada_em).toLocaleString('pt-BR')} | ${h.retirado_por}${h.devolvido_em ? ' → devolvido em ' + new Date(h.devolvido_em).toLocaleString('pt-BR') : ' (em uso)'}${h.observacao ? ' | ' + h.observacao : ''}`).join('\n');
+                    alert(linhas || 'Sem histórico');
+                });
+        }
+    </script>
+</body>
+</html>
