@@ -14,7 +14,29 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_env';
 
-// Biometria removida
+// Endpoint para receber eventos do cliente DigitalPersona
+app.post('/api/biometric-event', (req, res) => {
+  try {
+    const { event, message, timestamp } = req.body;
+    
+    console.log(`[BIOMETRIA] ${event}: ${message} (${timestamp})`);
+    
+    // Aqui você pode processar o evento da biometria
+    // Por exemplo, salvar no banco, notificar frontend, etc.
+    
+    res.json({ 
+      success: true, 
+      message: 'Evento biométrico recebido',
+      event: event 
+    });
+  } catch (error) {
+    console.error('Erro ao processar evento biométrico:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
 
 // Middleware
 // Ajuste de segurança: em desenvolvimento, permitir inline scripts/styles para a SPA funcionar
@@ -29,7 +51,7 @@ app.use(helmet({
       "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       "script-src-elem": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       "script-src-attr": ["'self'", "'unsafe-inline'"],
-      "connect-src": ["'self'", "https://cdn.jsdelivr.net"],
+      "connect-src": ["'self'", "https://cdn.jsdelivr.net", "data:", "blob:"],
       "font-src": ["'self'", "data:"]
     }
   },
@@ -116,6 +138,38 @@ db.serialize(() => {
     template TEXT NOT NULL,
     data_captura DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (visitante_id) REFERENCES visitantes (id)
+  )`);
+
+  // Tabela de histórico de visitantes (para busca por CPF)
+  db.run(`CREATE TABLE IF NOT EXISTS visitantes_historico (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpf TEXT UNIQUE NOT NULL,
+    nome TEXT NOT NULL,
+    telefone TEXT,
+    email TEXT,
+    foto_url TEXT,
+    data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP,
+    data_ultima_visita DATETIME,
+    total_visitas INTEGER DEFAULT 0,
+    observacoes TEXT
+  )`);
+
+  // Tabela de histórico de visitas
+  db.run(`CREATE TABLE IF NOT EXISTS visitas_historico (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visitante_historico_id INTEGER,
+    setor_id INTEGER,
+    paciente_id INTEGER,
+    motivo_visita TEXT,
+    entrada DATETIME DEFAULT CURRENT_TIMESTAMP,
+    saida DATETIME,
+    status TEXT DEFAULT 'dentro',
+    usuario_id INTEGER,
+    observacoes TEXT,
+    FOREIGN KEY (visitante_historico_id) REFERENCES visitantes_historico (id),
+    FOREIGN KEY (setor_id) REFERENCES setores (id),
+    FOREIGN KEY (paciente_id) REFERENCES pacientes (id),
+    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
   )`);
 
   // Tabela de usuários
@@ -414,6 +468,70 @@ app.get('/api/pacientes', (req, res) => {
   });
 });
 
+// Função para registrar visitante no histórico
+function registrarNoHistorico(visitante, documento, nome, telefone, foto_url, setor_id, paciente_id) {
+  const cpfLimpo = documento.replace(/\D/g, '');
+  
+  // Verificar se visitante já existe no histórico
+  db.get('SELECT * FROM visitantes_historico WHERE cpf = ?', [cpfLimpo], (err, visitanteExistente) => {
+    if (err) {
+      console.error('Erro ao verificar visitante no histórico:', err);
+      return;
+    }
+    
+    if (visitanteExistente) {
+      // Atualizar visitante existente
+      const updateQuery = `
+        UPDATE visitantes_historico 
+        SET nome = ?, telefone = ?, foto_url = ?, 
+            data_ultima_visita = CURRENT_TIMESTAMP, total_visitas = total_visitas + 1
+        WHERE id = ?
+      `;
+      
+      db.run(updateQuery, [nome, telefone, foto_url, visitanteExistente.id], (err) => {
+        if (err) {
+          console.error('Erro ao atualizar visitante no histórico:', err);
+          return;
+        }
+        
+        registrarNovaVisita(visitanteExistente.id, setor_id, paciente_id, visitante.paciente_nome);
+      });
+    } else {
+      // Criar novo visitante no histórico
+      const insertQuery = `
+        INSERT INTO visitantes_historico (cpf, nome, telefone, foto_url, data_ultima_visita, total_visitas)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+      `;
+      
+      db.run(insertQuery, [cpfLimpo, nome, telefone, foto_url], function(err) {
+        if (err) {
+          console.error('Erro ao criar visitante no histórico:', err);
+          return;
+        }
+        
+        registrarNovaVisita(this.lastID, setor_id, paciente_id, visitante.paciente_nome);
+      });
+    }
+    
+    function registrarNovaVisita(visitanteHistoricoId, setorId, pacienteId, pacienteNome) {
+      // Registrar nova visita no histórico
+      const motivoVisita = pacienteNome ? `Visita ao paciente: ${pacienteNome}` : 'Visita registrada';
+      const visitaQuery = `
+        INSERT INTO visitas_historico (visitante_historico_id, setor_id, paciente_id, motivo_visita, observacoes)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      
+      db.run(visitaQuery, [visitanteHistoricoId, setorId, pacienteId, motivoVisita, `Cadastrado via sistema - ${new Date().toLocaleString('pt-BR')}`], (err) => {
+        if (err) {
+          console.error('Erro ao registrar visita no histórico:', err);
+        } else {
+          console.log('Visitante registrado no histórico com sucesso');
+        }
+      });
+    }
+  });
+}
+
 app.post('/api/visitantes', upload.single('foto'), (req, res) => {
   const { nome, documento, telefone, setor_id, paciente_id, paciente_nome, tipo } = req.body;
   const foto_url = req.file ? `/uploads/${req.file.filename}` : null;
@@ -442,6 +560,10 @@ app.post('/api/visitantes', upload.single('foto'), (req, res) => {
         if (err) {
           return res.status(500).json({ error: 'Erro ao buscar dados do visitante' });
         }
+        
+        // Registrar no histórico de visitantes
+        registrarNoHistorico(visitante, documento, nome, telefone, foto_url, setor_id, precisaPaciente ? pacienteFinalId : null);
+        
         res.status(201).json(visitante);
       });
     });
@@ -600,6 +722,135 @@ app.get('/api/visitantes/:id', authenticateToken, (req, res) => {
     }
     
     res.json(row);
+  });
+});
+
+// Buscar visitante por CPF no histórico
+app.get('/api/visitantes/buscar/:cpf', authenticateToken, (req, res) => {
+  const cpf = req.params.cpf.replace(/\D/g, ''); // Remove caracteres não numéricos
+  
+  if (!cpf || cpf.length !== 11) {
+    return res.status(400).json({ error: 'CPF inválido' });
+  }
+  
+  // Buscar no histórico de visitantes
+  const query = `
+    SELECT vh.*, 
+           COUNT(v.id) as total_visitas_hoje,
+           MAX(v.entrada) as ultima_entrada_hoje
+    FROM visitantes_historico vh
+    LEFT JOIN visitantes v ON v.documento = vh.cpf AND DATE(v.entrada) = DATE('now')
+    WHERE vh.cpf = ?
+    GROUP BY vh.id
+  `;
+  
+  db.get(query, [cpf], (err, visitante) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!visitante) {
+      return res.status(404).json({ error: 'Visitante não encontrado no histórico' });
+    }
+    
+    // Buscar histórico de visitas
+    const historicoQuery = `
+      SELECT vh.*, s.nome as setor_nome, p.nome as paciente_nome, u.nome as usuario_nome
+      FROM visitas_historico vh
+      LEFT JOIN setores s ON vh.setor_id = s.id
+      LEFT JOIN pacientes p ON vh.paciente_id = p.id
+      LEFT JOIN usuarios u ON vh.usuario_id = u.id
+      WHERE vh.visitante_historico_id = ?
+      ORDER BY vh.entrada DESC
+      LIMIT 10
+    `;
+    
+    db.all(historicoQuery, [visitante.id], (err, historico) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({
+        visitante: visitante,
+        historico: historico || []
+      });
+    });
+  });
+});
+
+// Registrar nova visita (atualizar histórico)
+app.post('/api/visitantes/registrar-visita', authenticateToken, (req, res) => {
+  const { cpf, nome, telefone, email, foto_url, setor_id, paciente_id, motivo_visita, observacoes } = req.body;
+  
+  if (!cpf || !nome) {
+    return res.status(400).json({ error: 'CPF e nome são obrigatórios' });
+  }
+  
+  const cpfLimpo = cpf.replace(/\D/g, '');
+  
+  // Verificar se visitante já existe no histórico
+  db.get('SELECT * FROM visitantes_historico WHERE cpf = ?', [cpfLimpo], (err, visitanteExistente) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    let visitanteId;
+    
+    if (visitanteExistente) {
+      // Atualizar visitante existente
+      visitanteId = visitanteExistente.id;
+      
+      const updateQuery = `
+        UPDATE visitantes_historico 
+        SET nome = ?, telefone = ?, email = ?, foto_url = ?, 
+            data_ultima_visita = CURRENT_TIMESTAMP, total_visitas = total_visitas + 1
+        WHERE id = ?
+      `;
+      
+      db.run(updateQuery, [nome, telefone, email, foto_url, visitanteId], (err) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        registrarNovaVisita();
+      });
+    } else {
+      // Criar novo visitante no histórico
+      const insertQuery = `
+        INSERT INTO visitantes_historico (cpf, nome, telefone, email, foto_url, data_ultima_visita, total_visitas)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+      `;
+      
+      db.run(insertQuery, [cpfLimpo, nome, telefone, email, foto_url], function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        visitanteId = this.lastID;
+        registrarNovaVisita();
+      });
+    }
+    
+    function registrarNovaVisita() {
+      // Registrar nova visita no histórico
+      const visitaQuery = `
+        INSERT INTO visitas_historico (visitante_historico_id, setor_id, paciente_id, motivo_visita, usuario_id, observacoes)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      
+      db.run(visitaQuery, [visitanteId, setor_id, paciente_id, motivo_visita, req.user.id, observacoes], function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({
+          success: true,
+          message: 'Visita registrada com sucesso',
+          visitante_id: visitanteId,
+          visita_id: this.lastID
+        });
+      });
+    }
   });
 });
 
