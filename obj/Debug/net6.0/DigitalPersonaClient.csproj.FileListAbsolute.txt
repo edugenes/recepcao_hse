@@ -1,0 +1,17 @@
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\DigitalPersonaClient.exe
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\DigitalPersonaClient.deps.json
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\DigitalPersonaClient.runtimeconfig.json
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\DigitalPersonaClient.dll
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\DigitalPersonaClient.pdb
+C:\Users\head_\Documents\Projetos\Recepcao\bin\Debug\net6.0\Newtonsoft.Json.dll
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.csproj.AssemblyReference.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.AssemblyInfoInputs.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.AssemblyInfo.cs
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.csproj.CoreCompileInputs.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.csproj.CopyComplete
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.dll
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\refint\DigitalPersonaClient.dll
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.pdb
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaClient.genruntimeconfig.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\ref\DigitalPersonaClient.dll
