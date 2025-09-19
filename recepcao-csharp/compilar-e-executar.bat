@@ -1,9 +1,11 @@
 @echo off
 echo ========================================
-echo   DIGITALPERSONA 4500 CLIENT
-echo   Cliente para o WebApp Original
+echo   SISTEMA DE RECEPCAO HSE v1.0
+echo   Aplicativo Windows Nativo C#
 echo ========================================
 echo.
+
+cd /d "%~dp0"
 
 echo Verificando .NET SDK...
 dotnet --version
@@ -19,7 +21,16 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo Compilando cliente DigitalPersona...
+echo Restaurando pacotes NuGet...
+dotnet restore
+if %errorlevel% neq 0 (
+    echo ERRO: Falha ao restaurar pacotes!
+    pause
+    exit /b 1
+)
+
+echo.
+echo Compilando aplicativo...
 dotnet build --configuration Release
 if %errorlevel% neq 0 (
     echo ERRO: Falha na compilacao!
@@ -28,10 +39,10 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo Executando cliente...
+echo Executando aplicativo...
 echo.
 dotnet run --configuration Release
 
 echo.
-echo Cliente finalizado.
+echo Aplicativo finalizado.
 pause

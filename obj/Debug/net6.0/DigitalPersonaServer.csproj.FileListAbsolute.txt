@@ -1,5 +1,0 @@
-C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaServer.csproj.AssemblyReference.cache
-C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaServer.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaServer.AssemblyInfoInputs.cache
-C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaServer.AssemblyInfo.cs
-C:\Users\head_\Documents\Projetos\Recepcao\obj\Debug\net6.0\DigitalPersonaServer.csproj.CoreCompileInputs.cache

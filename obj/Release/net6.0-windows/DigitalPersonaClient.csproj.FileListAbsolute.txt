@@ -1,0 +1,5 @@
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Release\net6.0-windows\DigitalPersonaClient.csproj.AssemblyReference.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Release\net6.0-windows\DigitalPersonaClient.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Release\net6.0-windows\DigitalPersonaClient.AssemblyInfoInputs.cache
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Release\net6.0-windows\DigitalPersonaClient.AssemblyInfo.cs
+C:\Users\head_\Documents\Projetos\Recepcao\obj\Release\net6.0-windows\DigitalPersonaClient.csproj.CoreCompileInputs.cache
