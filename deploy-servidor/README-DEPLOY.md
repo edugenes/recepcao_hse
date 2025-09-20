@@ -174,3 +174,5 @@ pm2 start ecosystem.config.js
 **✅ Sistema estável e confiável**
 
 **Perfeito para uso em produção!** 🚀
+
+

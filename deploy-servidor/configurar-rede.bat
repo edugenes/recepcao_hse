@@ -32,3 +32,5 @@ echo.
 echo IMPORTANTE: Anote o IP do servidor acima!
 echo.
 pause
+
+

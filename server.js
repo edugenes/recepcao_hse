@@ -14,29 +14,7 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_env';
 
-// Endpoint para receber eventos do cliente DigitalPersona
-app.post('/api/biometric-event', (req, res) => {
-  try {
-    const { event, message, timestamp } = req.body;
-    
-    console.log(`[BIOMETRIA] ${event}: ${message} (${timestamp})`);
-    
-    // Aqui você pode processar o evento da biometria
-    // Por exemplo, salvar no banco, notificar frontend, etc.
-    
-    res.json({ 
-      success: true, 
-      message: 'Evento biométrico recebido',
-      event: event 
-    });
-  } catch (error) {
-    console.error('Erro ao processar evento biométrico:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Erro interno do servidor' 
-    });
-  }
-});
+
 
 // Middleware
 // Ajuste de segurança: em desenvolvimento, permitir inline scripts/styles para a SPA funcionar

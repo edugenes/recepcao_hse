@@ -76,171 +76,6 @@
             .header-logo { height: 56px; }
         }
 
-        /* === ESTILOS BIOMÉTRICOS v2.0 === */
-        .biometric-section {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border: 2px dashed #3b82f6;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
-            display: block !important;
-            visibility: visible !important;
-        }
-
-        .biometric-preview-container {
-            margin: 15px 0;
-            display: flex;
-            justify-content: center;
-        }
-
-        .biometric-preview {
-            width: 100%;
-            max-width: 400px;
-            height: 200px;
-            background: #1f2937;
-            border-radius: 12px;
-            position: relative;
-            overflow: hidden;
-            border: 2px solid #374151;
-        }
-
-        .preview-placeholder {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: #9ca3af;
-        }
-
-        .preview-icon {
-            font-size: 3rem;
-            margin-bottom: 10px;
-        }
-
-        .preview-text {
-            font-size: 0.9rem;
-            text-align: center;
-            padding: 0 20px;
-        }
-
-        .biometric-title {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #1f2937;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .biometric-status {
-            padding: 10px 20px;
-            border-radius: 8px;
-            margin: 10px 0;
-            font-weight: 500;
-        }
-
-        .biometric-status.waiting {
-            background: #fef3c7;
-            color: #92400e;
-            border: 1px solid #f59e0b;
-        }
-
-        .biometric-status.capturing {
-            background: #dbeafe;
-            color: #1e40af;
-            border: 1px solid #3b82f6;
-        }
-
-        .biometric-status.success {
-            background: #d1fae5;
-            color: #065f46;
-            border: 1px solid #10b981;
-        }
-
-        .biometric-status.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border: 1px solid #ef4444;
-        }
-
-        .biometric-button {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
-            transition: all 0.3s;
-            margin: 10px;
-        }
-
-        .biometric-button:hover {
-            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-        }
-
-        .biometric-button:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .biometric-progress {
-            width: 100%;
-            height: 8px;
-            background: #e5e7eb;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-
-        .biometric-progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
-        .biometric-info {
-            font-size: 0.9rem;
-            color: #6b7280;
-            margin-top: 10px;
-        }
-
-        .biometric-quality {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            margin-top: 10px;
-        }
-
-        .quality-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #e5e7eb;
-        }
-
-        .quality-indicator.good {
-            background: #10b981;
-        }
-
-        .quality-indicator.fair {
-            background: #f59e0b;
-        }
-
-        .quality-indicator.poor {
-            background: #ef4444;
-        }
 
         .nav {
             background: #f8fafc;
@@ -2146,51 +1981,6 @@
                             </div>
                         </div>
 
-                        <!-- === SEÇÃO BIOMÉTRICA v2.0 === -->
-                        <div class="biometric-section">
-                            <div class="biometric-title">
-                                🖐️ Captura de Impressão Digital (LEITOR REAL)
-                            </div>
-                            
-                            <!-- Preview de Captura -->
-                            <div class="biometric-preview-container">
-                                <div id="biometric-preview" class="biometric-preview">
-                                    <div class="preview-placeholder">
-                                        <div class="preview-icon">📷</div>
-                                        <div class="preview-text">Clique em "Capturar Digital" para iniciar</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div id="biometricStatus" class="biometric-status waiting">
-                                Aguardando captura da impressão digital...
-                            </div>
-                            
-                            <div class="biometric-progress">
-                                <div id="biometricProgress" class="biometric-progress-bar"></div>
-                            </div>
-                            
-                            <button type="button" id="captureBiometric" class="biometric-button">
-                                🖐️ Capturar Digital
-                            </button>
-                            
-                            <button type="button" id="skipBiometric" class="biometric-button" style="background: #6b7280;">
-                                ⏭️ Pular Captura
-                            </button>
-                            
-                            <div id="biometricInfo" class="biometric-info">
-                                Posicione o dedo no leitor biométrico DigitalPersona 4500
-                            </div>
-                            
-                            <div id="biometricQuality" class="biometric-quality" style="display: none;">
-                                <span>Qualidade:</span>
-                                <div class="quality-indicator"></div>
-                                <div class="quality-indicator"></div>
-                                <div class="quality-indicator"></div>
-                                <div class="quality-indicator"></div>
-                                <div class="quality-indicator"></div>
-                            </div>
-                        </div>
 
                         <button type="submit" class="btn btn-success">Cadastrar Visitante</button>
                     </form>
@@ -2589,17 +2379,11 @@
 
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <!-- Módulo de Captura Biométrica v2.3 (LEITOR REAL) -->
-    <script src="/biometric-capture-physical.js?v=3.0"></script>
     <script>
         let token = localStorage.getItem('token');
         let currentStream = null;
         let capturedImageData = null;
         
-        // === VARIÁVEIS BIOMÉTRICAS v2.0 ===
-        let biometricCapture = null;
-        let biometricTemplate = null;
-        let biometricQuality = 0;
-        let biometricCaptured = false;
 
         // Verificar autenticação
         function decodeJwtPayload(t) {
@@ -3875,179 +3659,6 @@
             startWebcam();
         }
 
-        // === FUNÇÕES BIOMÉTRICAS v2.0 ===
-        
-        // Inicializar captura biométrica
-        function initBiometricCapture() {
-            if (typeof BiometricCapturePhysical === 'undefined') {
-                console.error('Módulo BiometricCapturePhysical não carregado');
-                return;
-            }
-
-            biometricCapture = new BiometricCapturePhysical();
-            
-            // Configurar callbacks
-            biometricCapture.onSuccess((result) => {
-                biometricTemplate = result.template;
-                biometricQuality = result.quality;
-                biometricCaptured = true;
-                
-                updateBiometricStatus('success', 'Captura realizada com sucesso!');
-                updateBiometricQuality(result.quality);
-                updateBiometricButtons(true);
-            });
-            
-            biometricCapture.onError((error) => {
-                updateBiometricStatus('error', 'Erro na captura: ' + error.message);
-                updateBiometricButtons(false);
-            });
-            
-            biometricCapture.onProgress((progress) => {
-                updateBiometricProgress(progress);
-            });
-        }
-        
-        // Atualizar status biométrico
-        function updateBiometricStatus(status, message) {
-            const statusEl = document.getElementById('biometricStatus');
-            statusEl.className = `biometric-status ${status}`;
-            statusEl.textContent = message;
-        }
-        
-        // Atualizar progresso biométrico
-        function updateBiometricProgress(progress) {
-            const progressEl = document.getElementById('biometricProgress');
-            progressEl.style.width = `${progress}%`;
-        }
-        
-        // Atualizar qualidade biométrica
-        function updateBiometricQuality(quality) {
-            const qualityEl = document.getElementById('biometricQuality');
-            const indicators = qualityEl.querySelectorAll('.quality-indicator');
-            
-            qualityEl.style.display = 'flex';
-            
-            // Calcular quantos indicadores acender
-            const activeCount = Math.min(5, Math.floor(quality / 20));
-            
-            indicators.forEach((indicator, index) => {
-                indicator.className = 'quality-indicator';
-                if (index < activeCount) {
-                    if (quality >= 80) {
-                        indicator.classList.add('good');
-                    } else if (quality >= 60) {
-                        indicator.classList.add('fair');
-                    } else {
-                        indicator.classList.add('poor');
-                    }
-                }
-            });
-        }
-        
-        // Atualizar botões biométricos
-        function updateBiometricButtons(captured) {
-            const captureBtn = document.getElementById('captureBiometric');
-            const skipBtn = document.getElementById('skipBiometric');
-            
-            if (captured) {
-                captureBtn.textContent = '✅ Digital Capturada';
-                captureBtn.disabled = true;
-                skipBtn.style.display = 'none';
-            } else {
-                captureBtn.textContent = '🖐️ Capturar Digital';
-                captureBtn.disabled = false;
-                skipBtn.style.display = 'inline-block';
-            }
-        }
-        
-        // Capturar digital
-        async function captureBiometric() {
-            if (!biometricCapture) {
-                initBiometricCapture();
-            }
-
-            try {
-                updateBiometricStatus('capturing', 'Conectando com leitor físico...');
-                updateBiometricButtons(false);
-
-                // Inicializar captura com preview
-                await biometricCapture.initializeCapture('biometric-preview');
-                
-                // Ativar leitor real
-                updateBiometricStatus('capturing', 'Ativando leitor DigitalPersona 4500...');
-                await biometricCapture.activateRealReader();
-                
-                // Mostrar botão para posicionar dedo
-                const fingerBtn = document.getElementById('finger-confirm-btn');
-                if (fingerBtn) {
-                    fingerBtn.style.display = 'block';
-                    fingerBtn.onclick = async () => {
-                        try {
-                            updateBiometricStatus('capturing', 'Capturando impressão digital real...');
-                            fingerBtn.style.display = 'none';
-                            
-                            const result = await biometricCapture.captureFingerprint();
-
-                            if (result.success) {
-                                biometricTemplate = result.template;
-                                biometricQuality = result.quality;
-                                biometricCaptured = true;
-
-                                updateBiometricStatus('success', 'Captura REAL realizada com sucesso!');
-                                updateBiometricQuality(result.quality);
-                                updateBiometricButtons(true);
-                            }
-                        } catch (error) {
-                            updateBiometricStatus('error', 'Erro na captura real: ' + error.message);
-                            updateBiometricButtons(false);
-                        }
-                    };
-                }
-                
-            } catch (error) {
-                updateBiometricStatus('error', 'Erro na captura: ' + error.message);
-                updateBiometricButtons(false);
-            }
-        }
-        
-        // Pular captura biométrica
-        function skipBiometric() {
-            biometricCaptured = false;
-            biometricTemplate = null;
-            biometricQuality = 0;
-            
-            updateBiometricStatus('waiting', 'Captura biométrica pulada');
-            updateBiometricButtons(false);
-            document.getElementById('biometricQuality').style.display = 'none';
-        }
-        
-        // Resetar captura biométrica
-        function resetBiometric() {
-            biometricCaptured = false;
-            biometricTemplate = null;
-            biometricQuality = 0;
-            
-            // Limpar preview
-            if (biometricCapture) {
-                biometricCapture.cleanup();
-            }
-            
-            // Restaurar placeholder
-            const preview = document.getElementById('biometric-preview');
-            if (preview) {
-                preview.innerHTML = `
-                    <div class="preview-placeholder">
-                        <div class="preview-icon">📷</div>
-                        <div class="preview-text">Clique em "Capturar Digital" para iniciar</div>
-                    </div>
-                `;
-            }
-            
-            updateBiometricStatus('waiting', 'Aguardando captura da impressão digital...');
-            updateBiometricButtons(false);
-            document.getElementById('biometricQuality').style.display = 'none';
-            document.getElementById('biometricProgress').style.width = '0%';
-        }
 
         function loadVisitantes(apenasAtivos) {
             const url = apenasAtivos ? '/api/visitantes?ativo=true' : '/api/visitantes';
@@ -4358,11 +3969,6 @@
             const tipo = document.querySelector('input[name="tipo"]:checked').value;
             formData.append('tipo', tipo);
             
-            // === DADOS BIOMÉTRICOS v2.0 ===
-            if (biometricCaptured && biometricTemplate) {
-                formData.append('digital_template', biometricTemplate.data);
-                formData.append('digital_quality', biometricQuality);
-            }
             
             // Enviar nome do paciente (backend localizará/criará o registro)
             if (tipo === 'visitante' || tipo === 'acompanhante') {
@@ -4416,7 +4022,6 @@
                         if (submitBtn) submitBtn.textContent = 'Cadastrar Visitante';
                         editandoId = null;
                         loadVisitantes(true);
-                        resetBiometric(); // Reset captura biométrica
                     } else {
                         alert('Erro: ' + (data.error || 'Falha ao atualizar'));
                     }
@@ -4441,7 +4046,6 @@
                     capturedImageData = null;
                     document.getElementById('capturedPhoto').classList.add('hidden');
                     document.getElementById('retakeControls').classList.add('hidden');
-                    resetBiometric(); // Reset captura biométrica
                 } else {
                     alert('Erro: ' + data.error);
                 }
@@ -4592,20 +4196,6 @@
                 });
             }
             
-            // === EVENT LISTENERS BIOMÉTRICOS v2.0 ===
-            const captureBtn = document.getElementById('captureBiometric');
-            const skipBtn = document.getElementById('skipBiometric');
-            
-            if (captureBtn) {
-                captureBtn.addEventListener('click', captureBiometric);
-            }
-            
-            if (skipBtn) {
-                skipBtn.addEventListener('click', skipBiometric);
-            }
-            
-            // Inicializar captura biométrica
-            initBiometricCapture();
         });
 
         // Carregar dados iniciais
