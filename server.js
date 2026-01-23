@@ -9,34 +9,54 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+
+const safeParse = (value, fallback = []) => {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+};
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_env';
 
-// Biometria removida
-
-// Middleware
-// Ajuste de segurança: em desenvolvimento, permitir inline scripts/styles para a SPA funcionar
-// e desabilitar COEP. Em produção, configure CSP estrita.
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "blob:"],
-      "style-src": ["'self'", "'unsafe-inline'"],
-      "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-      "script-src-elem": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-      "script-src-attr": ["'self'", "'unsafe-inline'"],
-      "connect-src": ["'self'", "https://cdn.jsdelivr.net"],
-      "font-src": ["'self'", "data:"]
-    }
-  },
-  crossOriginEmbedderPolicy: false
+// Middleware - Helmet desabilitado para evitar problemas com HTTPS
+// Adicionar headers básicos manualmente
+app.use((req, res, next) => {
+  // PREVENIR UPGRADE PARA HTTPS - CRÍTICO
+  res.removeHeader('Strict-Transport-Security');
+  res.removeHeader('Upgrade-Insecure-Requests');
+  res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'SAMEORIGIN');
+  res.header('X-XSS-Protection', '1; mode=block');
+  
+  // CSP que PERMITE HTTP (sem upgrade-insecure-requests)
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.protocol || 'http';
+  res.header('Content-Security-Policy', 
+    `script-src 'self' 'unsafe-inline' http://cdn.jsdelivr.net https://cdn.jsdelivr.net ${protocol}://${host}; ` +
+    `style-src 'self' 'unsafe-inline' http://cdn.jsdelivr.net https://cdn.jsdelivr.net; ` +
+    `img-src 'self' data: http: https:; ` +
+    `connect-src 'self' ${protocol}://${host} http: https:; ` +
+    `font-src 'self' data: http: https:; ` +
+    `default-src 'self' ${protocol}://${host} http: https:;`
+  );
+  
+  next();
+});
+// CORS será tratado pelo middleware customizado abaixo
+// Mantendo o pacote cors como fallback, mas nosso middleware customizado tem prioridade
+app.use(cors({ 
+  origin: true, // Permite qualquer origem
+  credentials: true, // Permite envio de cookies/credenciais
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(cors({ origin: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 }));
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -62,8 +82,17 @@ db.serialize(() => {
   // Tabela de setores
   db.run(`CREATE TABLE IF NOT EXISTS setores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL
+    nome TEXT NOT NULL,
+    status TEXT DEFAULT 'ativo',
+    tipo TEXT DEFAULT 'Outro',
+    observacoes TEXT
   )`);
+
+  // Evitar duplicações futuras de nomes de setores
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_setores_nome ON setores(nome)`, (err) => {
+    // Ignorar erro caso já existam duplicidades; a API retorna nomes únicos
+    // e o índice será criado assim que o banco estiver limpo.
+  });
 
   // Tabela de pacientes
   db.run(`CREATE TABLE IF NOT EXISTS pacientes (
@@ -95,11 +124,7 @@ db.serialize(() => {
       if (!columns.find(c => c.name === 'tipo')) {
         db.run(`ALTER TABLE visitantes ADD COLUMN tipo TEXT DEFAULT 'visitante'`);
       }
-      // Colunas relacionadas à biometria mantidas apenas para compatibilidade com bancos existentes
-      // (não serão mais utilizadas)
-      if (!columns.find(c => c.name === 'digital_template')) {
-        db.run(`ALTER TABLE visitantes ADD COLUMN digital_template TEXT`);
-      }
+
       if (!columns.find(c => c.name === 'status')) {
         db.run(`ALTER TABLE visitantes ADD COLUMN status TEXT DEFAULT 'dentro'`);
       }
@@ -109,14 +134,115 @@ db.serialize(() => {
     }
   });
 
-  // Tabela de digitais mantida apenas para compatibilidade (não utilizada)
-  db.run(`CREATE TABLE IF NOT EXISTS digitais (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    visitante_id INTEGER,
-    template TEXT NOT NULL,
-    data_captura DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (visitante_id) REFERENCES visitantes (id)
-  )`);
+  // Garantir colunas novas em setores para hotelaria
+  db.all(`PRAGMA table_info(setores)`, (err, columns) => {
+    if (!err && columns) {
+      if (!columns.find(c => c.name === 'status')) {
+        db.run(`ALTER TABLE setores ADD COLUMN status TEXT DEFAULT 'ativo'`);
+      }
+      if (!columns.find(c => c.name === 'tipo')) {
+        db.run(`ALTER TABLE setores ADD COLUMN tipo TEXT DEFAULT 'Outro'`);
+      }
+      if (!columns.find(c => c.name === 'observacoes')) {
+        db.run(`ALTER TABLE setores ADD COLUMN observacoes TEXT`);
+      }
+    }
+    // Normalizar status/tipo para setores já existentes
+    db.run(`UPDATE setores SET status = 'ativo' WHERE status IS NULL OR TRIM(status) = ''`);
+    db.run(`UPDATE setores SET tipo = COALESCE(NULLIF(TRIM(tipo), ''), 'Outro')`);
+  });
+
+
+  // Inserir setores padrão apenas se a tabela estiver vazia (não apagar dados existentes)
+  db.get('SELECT COUNT(*) as total FROM setores', (err, row) => {
+    if (err) {
+      console.error('Erro ao contar setores:', err.message);
+      return;
+    }
+    if (row && row.total === 0) {
+      const setores = [
+        'Assessoria de Ensino e Pesquisa do HSE (HSE-AEPH)',
+        'Assessoria de Pessoas/Recursos Humanos (APES-RH)',
+        'Assessoria de Relações Institucionais do HSE (HSE-ARIH)',
+        'ASSESSORIA GERAL (HSE AGHSE)',
+        'Centro de Reabilitação Funcional e Cognitiva (HSE-CRFC)',
+        'CLÍNICA VASCULAR CIRÚRGICA E AMBULATORIAL (HSE-CVAS)',
+        'Comissão de Compra Direta (HSE-CCD)',
+        'Diretoria do Hospital do Servidor (HSE-DHSE)',
+        'Gerência Administrativa e Financeira do HSE (HSE-GAFH)',
+        'Gerência de Engenharia e Manutenção do HSE (HSE-GEMH)',
+        'Gestão de Materiais Especiais e de Alto Custo (HSE-GMEAC)',
+        'Gestão de Material Médico Hospitalar (HSE-GMMH)',
+        'Gerência Técnica de Enfermagem do HSE (HSE-GTENFH)',
+        'Núcleo de Análises Clinicas (HSE-NACL)',
+        'Núcleo de Assistência Domiciliar (HSE-NAD)',
+        'Núcleo de Farmácia (HSE-NAFA)',
+        'Núcleo de Agência Transfusional (HSE-NAGTR)',
+        'Núcleo de Limpeza e Conservação (HSE-NALC)',
+        'Núcleo de Apoio de Almoxarifado (HSE-NALM)',
+        'Núcleo de Nutrição (HSE-NANU)',
+        'Núcleo de Apoio aos Serviços de Terceiros (HSE-NAST)',
+        'Núcleo de Transporte (HSE-NATR)',
+        'Núcleo de Bloco Cirúrgico (HSE-NBC)',
+        'Núcleo de Clínica Médica (HSE-NCMED)',
+        'NÚCLEO DE CLINICA MÉDICA GERIATRICA (HSE-NCMGER)',
+        'Núcleo de Compras (HSE-NCOMP)',
+        'Núcleo de Enfermagem do Ambulatório (HSE-NEAMB)',
+        'Núcleo de Enfermagem do Bloco Cirúrgico e CME (HSE-NEBC)',
+        'Núcleo de Enfermagem da Clinica Cirúrgica (HSE - NECC)',
+        'Núcleo de Enfermagem do CEMPRE (HSE NECEMPRE)',
+        'Núcleo de Enfermagem de Clinica Médica (HSE-NECM)',
+        'Núcleo de Enfermagem da Clinica Vascular (HSE-NECV)',
+        'Núcleo de Enfermagem da Emergência (HSE-NEEME)',
+        'Núcleo de Enfermagem aos Meios de Diagnósticos (HSE NEMD)',
+        'Núcleo de Engenharia Clinica (HSE-NENGCL)',
+        'Núcleo de Enfermagem de Oncologia (HSE-NEONCO)',
+        'Núcleo de Epidemiologia (HSE-NEPI)',
+        'Núcleo de Enfermagem de Quimioterapia (HSE-NEQUIM)',
+        'Núcleo de Enfermagem da UTI 1 Pós Operatória (HSE-NEUTI1)',
+        'Núcleo de Enfermagem de UTI 2 3 (HSE NEUTI23)',
+        'Núcleo de Faturamento e Custos (HSE-NFATC)',
+        'Núcleo de Gestão de Acesso (HSE-NGA)',
+        'Núcleo de Hotelaria (HSE-NHOTE)',
+        'Núcleo de Oncologia (HSE-NONC)',
+        'Núcleo de Patrimônio (HSE-NPAT)',
+        'Núcleo de Planejamento e Gestão Financeira (HSE-NPGF)',
+        'Núcleo de Psicologia (HSE-NPSIC)',
+        'Núcleo de Rouparia (HSE-NROU)',
+        'Núcleo de Serviço de Imagem (HSE-NSIMG)',
+        'Núcleo de Serviço de Imagem de Tomografia Computadoriza (HSE-NSITC)',
+        'Núcleo de Serviço Social (HSE-NSSOC)',
+        'Núcleo de Tecnologia da Informação (HSE-NTI)',
+        'Núcleo de Adesão (HSE-NUAD)',
+        'Núcleo de Contratos (HSE-NUCON)',
+        'Núcleo de Fase Preparatória (HSE-NUFAP)',
+        'Núcleo de UTI 1 Pós Operatória (HSE-NUTI1)',
+        'Núcleo de UTI 23 (HSE-NUTI23)',
+        'Núcleo de UTI 2 e 3 (HSE-NUTI23)',
+        'Núcleo de Servido de Arquivo Médico (HSE-SAME)',
+        'Serviço de Controle de Infecção Hospitalar (HSE-SCIH)',
+        'Superintendencia Médica do HSE (HSE-SMED)',
+        'Superintendência Multiprofissional do HSE (HSE-SMPH)',
+        'Setor de Saúde Ocupacional (HSE-SSO)',
+        'Superintendência de Compras Publicas (HSE-SUCOP)',
+        'Superintendente da Saúde Funcional e Cognitiva (HSE-SUP-CRFC)',
+        'Unidade de Apoio Assistencial - 2 (HSE-UAA)',
+        'Unidade de Apoio Administrativo (HSE-UAAD)',
+        'Unidade de Apoio Ambulatorial (HSE-UAAM)',
+        'Unidade de Apoio Assistencial I (HSE-UAAS)',
+        'Unidade de Assistência Clínica (HSE-UACL)',
+        'Unidade de Assistência Cirúrgica (HSE-UACR)',
+        'Unidade de Pronto Atendimento (HSE-UPA)',
+        'Unidade de Pacientes Externos (HSE-UPE)',
+        'Unidade de Pacientes Internos (HSE - UPI)',
+        'Unidade de Qualidade e Segurança do Paciente (HSE-UQSP)'
+      ];
+
+      setores.forEach(nome => {
+        db.run(`INSERT OR IGNORE INTO setores (nome) VALUES (?)`, [nome]);
+      });
+    }
+  });
 
   // Tabela de usuários
   db.run(`CREATE TABLE IF NOT EXISTS usuarios (
@@ -128,61 +254,24 @@ db.serialize(() => {
     username TEXT UNIQUE
   )`);
 
-  // Garantir existência das colunas e só então prosseguir com inserts/updates
+  // Garantir colunas existentes
   db.all(`PRAGMA table_info(usuarios)`, (err, columns) => {
-    const hasRole = (!err && columns && columns.find(c => c.name === 'role')) ? true : false;
-    const hasUsername = (!err && columns && columns.find(c => c.name === 'username')) ? true : false;
+    if (!err && columns) {
+      if (!columns.find(c => c.name === 'role')) {
+        db.run(`ALTER TABLE usuarios ADD COLUMN role TEXT DEFAULT 'user'`);
+      }
+      if (!columns.find(c => c.name === 'username')) {
+        db.run(`ALTER TABLE usuarios ADD COLUMN username TEXT UNIQUE`);
+      }
+    }
 
-    const ensureRole = (cb) => {
-      if (!hasRole) { db.run(`ALTER TABLE usuarios ADD COLUMN role TEXT DEFAULT 'user'`, cb); } else { cb(); }
-    };
-    const ensureUsername = (cb) => {
-      if (!hasUsername) { db.run(`ALTER TABLE usuarios ADD COLUMN username TEXT UNIQUE`, cb); } else { cb(); }
-    };
-
-    const proceed = () => {
-      const senhaHash = bcrypt.hashSync('admin123', 10);
-      db.run(`INSERT OR IGNORE INTO usuarios (id, nome, email, senha) VALUES (1, ?, ?, ?)`, 
-        ['Admin', 'admin@recepcao.com', senhaHash]);
-
-      const senhaUser = bcrypt.hashSync('user123', 10);
-      db.run(`INSERT OR IGNORE INTO usuarios (nome, email, senha) VALUES (?, ?, ?)`, 
-        ['Usuário', 'user@recepcao.com', senhaUser]);
-
-      db.run(`UPDATE usuarios SET role = 'admin' WHERE (email = 'admin@recepcao.com' OR id = 1)`);
-      db.run(`UPDATE usuarios SET role = 'user' WHERE (role IS NULL OR role = '') AND email <> 'admin@recepcao.com'`);
-
-      // Apenas se a coluna username existir, faça ajustes
-      db.all(`PRAGMA table_info(usuarios)`, (e2, cols2) => {
-        const hasUserCol = (!e2 && cols2 && cols2.find(c => c.name === 'username')) ? true : false;
-        if (hasUserCol) {
-          db.run(`UPDATE usuarios SET username = 'admin' WHERE (email = 'admin@recepcao.com' OR id = 1)`);
-          db.run(`UPDATE usuarios SET username = 'usuario' WHERE (username IS NULL OR username = '') AND (email = 'user@recepcao.com')`);
-        }
-        // Garantir senha do admin (id=1)
-        db.run(`UPDATE usuarios SET senha = ? WHERE (email = 'admin@recepcao.com' OR id = 1)`, [senhaHash]);
-      });
-    };
-
-    ensureRole(() => ensureUsername(proceed));
-  });
-
-  // Inserir setores
-  const setores = ['UTI', 'Enfermaria', 'Pronto Socorro', 'Ambulatório', 'Cirurgia', 'Pediatria'];
-  setores.forEach(setor => {
-    db.run(`INSERT OR IGNORE INTO setores (nome) VALUES (?)`, [setor]);
-  });
-
-  // Inserir pacientes de exemplo
-  const pacientes = [
-    { nome: 'João Silva', setor_id: 1 },
-    { nome: 'Maria Santos', setor_id: 2 },
-    { nome: 'Pedro Oliveira', setor_id: 1 },
-    { nome: 'Ana Costa', setor_id: 3 }
-  ];
-  pacientes.forEach(paciente => {
-    db.run(`INSERT OR IGNORE INTO pacientes (nome, setor_id) VALUES (?, ?)`, 
-      [paciente.nome, paciente.setor_id]);
+    // Criar usuário admin padrão
+    const senhaHash = bcrypt.hashSync('admin123', 10);
+    db.run(`INSERT OR IGNORE INTO usuarios (id, nome, email, senha, role, username) VALUES (1, ?, ?, ?, ?, ?)`, 
+      ['Admin', 'admin@recepcao.com', senhaHash, 'admin', 'admin']);
+    
+    // Garantir que o admin sempre tenha role='admin' e username='admin'
+    db.run(`UPDATE usuarios SET role = 'admin', username = 'admin', senha = ? WHERE (email = 'admin@recepcao.com' OR id = 1)`, [senhaHash]);
   });
 });
 
@@ -220,6 +309,88 @@ db.serialize(() => {
       }
     }
   });
+
+  // Tabela de enfermarias (Hotelaria)
+  db.run(`CREATE TABLE IF NOT EXISTS enfermarias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    setor_id INTEGER NOT NULL,
+    nome TEXT NOT NULL,
+    status TEXT DEFAULT 'ativo',
+    FOREIGN KEY (setor_id) REFERENCES setores(id)
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_enfermarias_setor ON enfermarias(setor_id)`);
+
+  // Tabela de leitos (Hotelaria)
+  db.run(`CREATE TABLE IF NOT EXISTS leitos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    setor_id INTEGER,
+    enfermaria_id INTEGER,
+    identificacao TEXT NOT NULL,
+    status TEXT DEFAULT 'ativo',
+    FOREIGN KEY (setor_id) REFERENCES setores(id),
+    FOREIGN KEY (enfermaria_id) REFERENCES enfermarias(id)
+  )`, (err) => {
+    if (err) {
+      console.error('Erro ao criar tabela leitos:', err);
+      return;
+    }
+    
+    // Garantir coluna enfermaria_id em bases antigas (executado após criação da tabela)
+    db.all(`PRAGMA table_info(leitos)`, (err2, cols) => {
+      if (err2) {
+        console.error('Erro ao verificar colunas da tabela leitos:', err2);
+        return;
+      }
+      
+      const hasEnfermariaId = cols && cols.find(c => c.name === 'enfermaria_id');
+      
+      if (!hasEnfermariaId) {
+        db.run(`ALTER TABLE leitos ADD COLUMN enfermaria_id INTEGER`, (err3) => {
+          if (err3) {
+            console.error('Erro ao adicionar coluna enfermaria_id:', err3);
+          } else {
+            console.log('Coluna enfermaria_id adicionada à tabela leitos');
+            // Criar índice após adicionar a coluna
+            db.run(`CREATE INDEX IF NOT EXISTS idx_leitos_enfermaria ON leitos(enfermaria_id)`, (err4) => {
+              if (err4) console.error('Erro ao criar índice idx_leitos_enfermaria:', err4);
+            });
+          }
+        });
+      } else {
+        // Coluna já existe, criar índice normalmente
+        db.run(`CREATE INDEX IF NOT EXISTS idx_leitos_enfermaria ON leitos(enfermaria_id)`, (err4) => {
+          if (err4) console.error('Erro ao criar índice idx_leitos_enfermaria:', err4);
+        });
+      }
+    });
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_leitos_setor ON leitos(setor_id)`);
+  
+  // Garantir coluna enfermaria_id na tabela hotelaria_checklists
+  db.all(`PRAGMA table_info(hotelaria_checklists)`, (err, cols) => {
+    if (!err && cols && !cols.find(c => c.name === 'enfermaria_id')) {
+      db.run(`ALTER TABLE hotelaria_checklists ADD COLUMN enfermaria_id INTEGER`, (err2) => {
+        if (err2) console.error('Erro ao adicionar coluna enfermaria_id em checklists:', err2);
+      });
+    }
+  });
+
+  // Tabela de checklists de hotelaria
+  db.run(`CREATE TABLE IF NOT EXISTS hotelaria_checklists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    setor_id INTEGER NOT NULL,
+    leito_id INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    colaborador TEXT NOT NULL,
+    itens TEXT NOT NULL, -- JSON string com ids dos itens marcados
+    observacoes TEXT,
+    criado_por INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (setor_id) REFERENCES setores(id),
+    FOREIGN KEY (leito_id) REFERENCES leitos(id),
+    FOREIGN KEY (criado_por) REFERENCES usuarios(id)
+  )`);
 });
 
 // Middleware de autenticação
@@ -240,16 +411,85 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Helpers de permissão
+const isAdminRole = (role) => role === 'admin';
+const isHotelariaGestorRole = (role) => role === 'hotelaria_gestor';
+const isHotelariaColabRole = (role) => role === 'hotelaria_colab';
+
+const ensureGestorHotelariaOrAdmin = (userRow) => {
+  if (!userRow) return false;
+  const role = (userRow.role || '').toLowerCase();
+  return isAdminRole(role) || isHotelariaGestorRole(role);
+};
+
+const ensureHotelariaUser = (userRow) => {
+  if (!userRow) return false;
+  const role = (userRow.role || '').toLowerCase();
+  return isAdminRole(role) || isHotelariaGestorRole(role) || isHotelariaColabRole(role);
+};
+
+// Middleware CORS customizado para garantir acesso pela rede
+const corsMiddleware = (req, res, next) => {
+  const origin = req.headers.origin;
+  res.header('Access-Control-Allow-Origin', origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Expose-Headers', 'Content-Type, Authorization');
+  
+  // Prevenir cache em respostas de API
+  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  
+  // PREVENIR UPGRADE PARA HTTPS - CRÍTICO
+  res.removeHeader('Strict-Transport-Security');
+  res.removeHeader('Upgrade-Insecure-Requests');
+  res.header('X-Content-Type-Options', 'nosniff');
+  
+  next();
+};
+
+// Aplicar middleware CORS a todas as rotas
+app.use(corsMiddleware);
+
+// Handler para requisições OPTIONS (preflight CORS)
+app.options('*', (req, res) => {
+  res.sendStatus(200);
+});
+
 // Rotas
 app.post('/api/login', (req, res) => {
-  const { email, senha } = req.body;
+  const { login, email, senha } = req.body;
+  
+  // Aceitar tanto 'login' quanto 'email' para compatibilidade
+  const loginValue = login || email;
+
+  if (!loginValue || !senha) {
+    return res.status(400).json({ error: 'Login e senha são obrigatórios' });
+  }
 
   // Detectar existência da coluna username para compatibilidade com bases antigas
   db.all(`PRAGMA table_info(usuarios)`, (err, cols) => {
     if (err) return res.status(500).json({ error: 'Erro interno' });
     const hasUsername = cols && cols.find(c => c.name === 'username');
-    const query = hasUsername ? 'SELECT * FROM usuarios WHERE email = ? OR username = ?' : 'SELECT * FROM usuarios WHERE email = ?';
-    const params = hasUsername ? [email, email] : [email];
+    
+    // Buscar por email, username ou login "admin" simplificado
+    let query, params;
+    if (loginValue.toLowerCase() === 'admin') {
+      // Login simplificado: buscar usuário admin (username='admin' ou email='admin@recepcao.com' ou id=1)
+      query = hasUsername 
+        ? 'SELECT * FROM usuarios WHERE (username = ? OR email = ? OR id = 1) AND role = ?'
+        : 'SELECT * FROM usuarios WHERE (email = ? OR id = 1) AND role = ?';
+      params = hasUsername 
+        ? ['admin', 'admin@recepcao.com', 'admin']
+        : ['admin@recepcao.com', 'admin'];
+    } else {
+      query = hasUsername 
+        ? 'SELECT * FROM usuarios WHERE email = ? OR username = ?' 
+        : 'SELECT * FROM usuarios WHERE email = ?';
+      params = hasUsername ? [loginValue, loginValue] : [loginValue];
+    }
 
     db.get(query, params, (err2, user) => {
       if (err2) return res.status(500).json({ error: 'Erro interno' });
@@ -261,6 +501,12 @@ app.post('/api/login', (req, res) => {
     });
   });
 });
+
+const HOTELARIA_ROLES = new Set(['hotelaria_gestor', 'hotelaria_colab']);
+const isAllowedRole = (role) => {
+  const r = (role || '').toLowerCase();
+  return r === 'admin' || r === 'user' || HOTELARIA_ROLES.has(r);
+};
 
 // Rota para criar usuário (apenas admin)
 app.post('/api/usuarios', authenticateToken, (req, res) => {
@@ -274,6 +520,9 @@ app.post('/api/usuarios', authenticateToken, (req, res) => {
     if (!nome || !email || !senha) {
       return res.status(400).json({ error: 'Campos obrigatórios: nome, email, senha' });
     }
+    const roleFinalRaw = (role || 'user').toLowerCase();
+    const roleFinal = isAllowedRole(roleFinalRaw) ? roleFinalRaw : 'user';
+
     // Gerar username a partir de "primeiro.último" de nome
     const gerarUsername = (nomeCompleto) => {
       const partes = (nomeCompleto || '').toLowerCase().trim().split(/\s+/);
@@ -300,11 +549,11 @@ app.post('/api/usuarios', authenticateToken, (req, res) => {
     gerarDisponivel((username) => {
       const senhaHash = bcrypt.hashSync(senha, 10);
       db.run(`INSERT INTO usuarios (nome, email, senha, role, username) VALUES (?, ?, ?, ?, ?)`,
-        [nome, email, senhaHash, role === 'admin' ? 'admin' : 'user', username], function(err2) {
+        [nome, email, senhaHash, roleFinal, username], function(err2) {
           if (err2) {
             return res.status(500).json({ error: 'Erro ao criar usuário' });
           }
-          res.status(201).json({ id: this.lastID, nome, email, role: role === 'admin' ? 'admin' : 'user', username });
+          res.status(201).json({ id: this.lastID, nome, email, role: roleFinal, username });
         });
     });
   });
@@ -337,8 +586,11 @@ app.put('/api/usuarios/:id', authenticateToken, (req, res) => {
     const { nome, email, role } = req.body || {};
     if (!nome || !email) return res.status(400).json({ error: 'Campos obrigatórios: nome e email' });
 
+    const roleFinalRaw = (role || 'user').toLowerCase();
+    const roleFinal = isAllowedRole(roleFinalRaw) ? roleFinalRaw : 'user';
+
     db.run(`UPDATE usuarios SET nome = ?, email = ?, role = ? WHERE id = ?`,
-      [nome, email, role === 'admin' ? 'admin' : 'user', alvoId], function(err2) {
+      [nome, email, roleFinal, alvoId], function(err2) {
         if (err2) return res.status(500).json({ error: 'Erro ao atualizar usuário' });
         res.json({ success: true, id: alvoId });
       });
@@ -388,11 +640,309 @@ app.delete('/api/usuarios/:id', authenticateToken, (req, res) => {
 });
 
 app.get('/api/setores', (req, res) => {
-  db.all('SELECT * FROM setores', (err, rows) => {
+  // Retornar setores únicos por nome para evitar duplicações no front-end
+  db.all('SELECT MIN(id) as id, nome FROM setores GROUP BY nome ORDER BY nome', (err, rows) => {
     if (err) {
       return res.status(500).json({ error: 'Erro ao buscar setores' });
     }
     res.json(rows);
+  });
+});
+
+// === HOTELARIA: Setores ===
+app.get('/api/hotelaria/setores', authenticateToken, (req, res) => {
+  const somenteAtivos = (req.query.somenteAtivos || req.query.status) === 'ativo';
+  const filtro = somenteAtivos ? `WHERE status = 'ativo'` : '';
+  db.all(`SELECT id, nome, status, tipo, observacoes FROM setores ${filtro} ORDER BY nome`, [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar setores' });
+    }
+    res.json(rows || []);
+  });
+});
+
+app.post('/api/hotelaria/setores', authenticateToken, (req, res) => {
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { nome, status, tipo, observacoes } = req.body;
+    if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
+    const statusFinal = (status || 'ativo').toLowerCase();
+    const tipoFinal = tipo || 'Outro';
+
+    db.run(`INSERT INTO setores (nome, status, tipo, observacoes) VALUES (?, ?, ?, ?)`, 
+      [nome.trim(), statusFinal, tipoFinal, observacoes || null], function(err2) {
+      if (err2) {
+        return res.status(500).json({ error: 'Erro ao criar setor', detail: err2.message });
+      }
+      res.status(201).json({ id: this.lastID, nome, status: statusFinal, tipo: tipoFinal, observacoes });
+    });
+  });
+});
+
+app.put('/api/hotelaria/setores/:id', authenticateToken, (req, res) => {
+  const setorId = parseInt(req.params.id, 10);
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { nome, status, tipo, observacoes } = req.body;
+    const updates = [];
+    const params = [];
+    if (nome) { updates.push('nome = ?'); params.push(nome.trim()); }
+    if (status) { updates.push('status = ?'); params.push(status.toLowerCase()); }
+    if (tipo) { updates.push('tipo = ?'); params.push(tipo); }
+    if (observacoes !== undefined) { updates.push('observacoes = ?'); params.push(observacoes || null); }
+
+    if (updates.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    params.push(setorId);
+
+    db.run(`UPDATE setores SET ${updates.join(', ')} WHERE id = ?`, params, function(err2) {
+      if (err2) {
+        return res.status(500).json({ error: 'Erro ao atualizar setor', detail: err2.message });
+      }
+      if (this.changes === 0) return res.status(404).json({ error: 'Setor não encontrado' });
+      res.json({ message: 'Setor atualizado' });
+    });
+  });
+});
+
+// === HOTELARIA: Enfermarias ===
+app.get('/api/hotelaria/enfermarias', authenticateToken, (req, res) => {
+  const { setor_id } = req.query;
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureHotelariaUser(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    let query = `SELECT e.*, s.nome as setor_nome 
+                 FROM enfermarias e 
+                 JOIN setores s ON s.id = e.setor_id`;
+    const params = [];
+    if (setor_id) {
+      query += ' WHERE e.setor_id = ?';
+      params.push(setor_id);
+    }
+    query += ' ORDER BY e.nome';
+
+    db.all(query, params, (err2, rows) => {
+      if (err2) return res.status(500).json({ error: 'Erro ao buscar enfermarias' });
+      res.json(rows || []);
+    });
+  });
+});
+
+app.post('/api/hotelaria/enfermarias', authenticateToken, (req, res) => {
+  const { setor_id, nome, status } = req.body || {};
+  if (!setor_id || !nome) return res.status(400).json({ error: 'Setor e nome são obrigatórios' });
+
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const st = (status || 'ativo').toLowerCase();
+    db.run(`INSERT INTO enfermarias (setor_id, nome, status) VALUES (?, ?, ?)`,
+      [setor_id, nome.trim(), st], function(err2) {
+        if (err2) return res.status(500).json({ error: 'Erro ao criar enfermaria', detail: err2.message });
+        res.status(201).json({ id: this.lastID, setor_id, nome: nome.trim(), status: st });
+      });
+  });
+});
+
+app.put('/api/hotelaria/enfermarias/:id', authenticateToken, (req, res) => {
+  const enfId = parseInt(req.params.id, 10);
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { nome, status, setor_id } = req.body || {};
+    const updates = [];
+    const params = [];
+    if (nome) { updates.push('nome = ?'); params.push(nome.trim()); }
+    if (status) { updates.push('status = ?'); params.push(status.toLowerCase()); }
+    if (setor_id) { updates.push('setor_id = ?'); params.push(setor_id); }
+    if (updates.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    params.push(enfId);
+
+    db.run(`UPDATE enfermarias SET ${updates.join(', ')} WHERE id = ?`, params, function(err2) {
+      if (err2) return res.status(500).json({ error: 'Erro ao atualizar enfermaria', detail: err2.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Enfermaria não encontrada' });
+      res.json({ message: 'Enfermaria atualizada' });
+    });
+  });
+});
+
+// === HOTELARIA: Leitos ===
+app.get('/api/hotelaria/leitos', authenticateToken, (req, res) => {
+  const { setor_id, enfermaria_id } = req.query;
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureHotelariaUser(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    // Verificar se a coluna enfermaria_id existe antes de usar
+    db.all(`PRAGMA table_info(leitos)`, (err1, cols) => {
+      if (err1) return res.status(500).json({ error: 'Erro ao verificar schema' });
+      
+      const hasEnfermariaId = cols && cols.find(c => c.name === 'enfermaria_id');
+      
+      let query = `SELECT l.*, s.nome as setor_nome`;
+      if (hasEnfermariaId) {
+        query += `, e.nome as enfermaria_nome 
+                 FROM leitos l 
+                 LEFT JOIN enfermarias e ON e.id = l.enfermaria_id
+                 LEFT JOIN setores s ON s.id = COALESCE(e.setor_id, l.setor_id)`;
+      } else {
+        query += ` FROM leitos l 
+                 LEFT JOIN setores s ON s.id = l.setor_id`;
+      }
+      
+      const params = [];
+      if (setor_id) {
+        query += hasEnfermariaId 
+          ? ' WHERE COALESCE(e.setor_id, l.setor_id) = ?'
+          : ' WHERE l.setor_id = ?';
+        params.push(setor_id);
+      }
+      if (enfermaria_id && hasEnfermariaId) {
+        query += setor_id ? ' AND' : ' WHERE';
+        query += ' l.enfermaria_id = ?';
+        params.push(enfermaria_id);
+      }
+      query += ' ORDER BY l.identificacao';
+
+      db.all(query, params, (err2, rows) => {
+        if (err2) return res.status(500).json({ error: 'Erro ao buscar leitos', detail: err2.message });
+        res.json(rows || []);
+      });
+    });
+  });
+});
+
+app.post('/api/hotelaria/leitos', authenticateToken, (req, res) => {
+  const { setor_id, enfermaria_id, identificacao, status } = req.body;
+  if (!identificacao || (!setor_id && !enfermaria_id)) {
+    return res.status(400).json({ error: 'Setor ou enfermaria e identificação são obrigatórios' });
+  }
+
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const insertWithSetor = (resolvedSetorId) => {
+      db.run(`INSERT INTO leitos (setor_id, enfermaria_id, identificacao, status) VALUES (?, ?, ?, ?)`,
+        [resolvedSetorId, enfermaria_id || null, identificacao.trim(), (status || 'ativo').toLowerCase()], function(err2) {
+          if (err2) return res.status(500).json({ error: 'Erro ao criar leito', detail: err2.message });
+          res.status(201).json({
+            id: this.lastID,
+            setor_id: resolvedSetorId,
+            enfermaria_id: enfermaria_id || null,
+            identificacao: identificacao.trim(),
+            status: (status || 'ativo').toLowerCase()
+          });
+        });
+    };
+
+    if (enfermaria_id && !setor_id) {
+      db.get(`SELECT setor_id FROM enfermarias WHERE id = ?`, [enfermaria_id], (e2, enf) => {
+        if (e2) return res.status(500).json({ error: 'Erro ao buscar enfermaria' });
+        if (!enf) return res.status(400).json({ error: 'Enfermaria inválida' });
+        insertWithSetor(enf.setor_id);
+      });
+    } else {
+      insertWithSetor(setor_id);
+    }
+  });
+});
+
+app.put('/api/hotelaria/leitos/:id', authenticateToken, (req, res) => {
+  const leitoId = parseInt(req.params.id, 10);
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureGestorHotelariaOrAdmin(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { identificacao, status, setor_id, enfermaria_id } = req.body;
+    const updates = [];
+    const params = [];
+    if (identificacao) { updates.push('identificacao = ?'); params.push(identificacao.trim()); }
+    if (status) { updates.push('status = ?'); params.push(status.toLowerCase()); }
+    if (setor_id) { updates.push('setor_id = ?'); params.push(setor_id); }
+    if (typeof enfermaria_id !== 'undefined') { updates.push('enfermaria_id = ?'); params.push(enfermaria_id || null); }
+    if (updates.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    params.push(leitoId);
+
+    db.run(`UPDATE leitos SET ${updates.join(', ')} WHERE id = ?`, params, function(err2) {
+      if (err2) return res.status(500).json({ error: 'Erro ao atualizar leito', detail: err2.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Leito não encontrado' });
+      res.json({ message: 'Leito atualizado' });
+    });
+  });
+});
+
+// === HOTELARIA: Checklists ===
+app.post('/api/hotelaria/checklists', authenticateToken, (req, res) => {
+  const { setor_id, leito_id, data, colaborador, itens, observacoes } = req.body;
+  if (!setor_id || !leito_id || !data || !colaborador) {
+    return res.status(400).json({ error: 'Campos obrigatórios: setor_id, leito_id, data, colaborador' });
+  }
+
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureHotelariaUser(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    db.get(`SELECT id, setor_id FROM leitos WHERE id = ?`, [leito_id], (err2, leitoRow) => {
+      if (err2) return res.status(500).json({ error: 'Erro ao validar leito' });
+      if (!leitoRow) return res.status(404).json({ error: 'Leito não encontrado' });
+      if (parseInt(leitoRow.setor_id, 10) !== parseInt(setor_id, 10)) {
+        return res.status(400).json({ error: 'Leito não pertence ao setor informado' });
+      }
+
+      const itensJson = JSON.stringify(itens || []);
+      db.run(`INSERT INTO hotelaria_checklists (setor_id, leito_id, data, colaborador, itens, observacoes, criado_por)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [setor_id, leito_id, data, colaborador.trim(), itensJson, observacoes || null, req.user.id],
+        function(err3) {
+          if (err3) return res.status(500).json({ error: 'Erro ao salvar checklist', detail: err3.message });
+          res.status(201).json({ id: this.lastID });
+        });
+    });
+  });
+});
+
+app.get('/api/hotelaria/checklists', authenticateToken, (req, res) => {
+  const { setor_id, leito_id, data, data_inicio, data_fim, enfermaria_id, colaborador } = req.query;
+  db.get(`SELECT id, role FROM usuarios WHERE id = ?`, [req.user.id], (err, userRow) => {
+    if (err) return res.status(500).json({ error: 'Erro ao verificar permissão' });
+    if (!ensureHotelariaUser(userRow)) return res.status(403).json({ error: 'Acesso negado' });
+
+    let query = `SELECT hc.*, 
+                        l.identificacao as leito_identificacao, 
+                        l.enfermaria_id,
+                        s.nome as setor_nome, 
+                        e.nome as enfermaria_nome,
+                        u.nome as criado_por_nome
+                 FROM hotelaria_checklists hc
+                 JOIN leitos l ON l.id = hc.leito_id
+                 JOIN setores s ON s.id = hc.setor_id
+                 LEFT JOIN enfermarias e ON e.id = l.enfermaria_id
+                 LEFT JOIN usuarios u ON u.id = hc.criado_por
+                 WHERE 1=1`;
+    const params = [];
+    if (setor_id) { query += ' AND hc.setor_id = ?'; params.push(setor_id); }
+    if (leito_id) { query += ' AND hc.leito_id = ?'; params.push(leito_id); }
+    if (data) { query += ' AND hc.data = ?'; params.push(data); }
+    if (data_inicio) { query += ' AND hc.data >= ?'; params.push(data_inicio); }
+    if (data_fim) { query += ' AND hc.data <= ?'; params.push(data_fim); }
+    if (enfermaria_id) { query += ' AND l.enfermaria_id = ?'; params.push(enfermaria_id); }
+    if (colaborador) { query += ' AND hc.colaborador LIKE ?'; params.push(`%${colaborador}%`); }
+    query += ' ORDER BY hc.created_at DESC LIMIT 1000';
+
+    db.all(query, params, (err2, rows) => {
+      if (err2) return res.status(500).json({ error: 'Erro ao buscar checklists', detail: err2.message });
+      res.json((rows || []).map(r => ({
+        ...r,
+        itens: safeParse(r.itens, []),
+      })));
+    });
   });
 });
 
@@ -767,18 +1317,135 @@ app.put('/api/visitantes/:id', authenticateToken, (req, res) => {
   });
 });
 
+// Middleware para prevenir upgrade HTTPS em arquivos estáticos
+const preventHttpsUpgrade = (req, res, next) => {
+  res.removeHeader('Strict-Transport-Security');
+  res.removeHeader('Upgrade-Insecure-Requests');
+  next();
+};
+
 // Servir arquivos estáticos
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', preventHttpsUpgrade, express.static('uploads'));
+app.use(preventHttpsUpgrade, express.static(path.join(__dirname, 'public')));
 
-// Rotas de biometria removidas
+// Proxy local para carregar bibliotecas de CDN e evitar ORB
+app.get('/vendor/qrcode.min.js', (req, res) => {
+  const https = require('https');
+  const url = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+  res.setHeader('Content-Type', 'application/javascript');
+  https.get(url, (r) => {
+    if (r.statusCode !== 200) {
+      res.status(r.statusCode || 500);
+    }
+    r.pipe(res);
+  }).on('error', (err) => {
+    res.status(500).send('// Erro ao carregar QRCode: ' + (err && err.message || 'erro desconhecido'));
+  });
+});
 
-// Rota para servir a aplicação
+app.get('/vendor/jspdf.umd.min.js', (req, res) => {
+  const https = require('https');
+  const url = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+  res.setHeader('Content-Type', 'application/javascript');
+  https.get(url, (r) => {
+    if (r.statusCode !== 200) {
+      res.status(r.statusCode || 500);
+    }
+    r.pipe(res);
+  }).on('error', (err) => {
+    res.status(500).send('// Erro ao carregar jsPDF: ' + (err && err.message || 'erro desconhecido'));
+  });
+});
+
+app.get('/vendor/jspdf.plugin.autotable.min.js', (req, res) => {
+  const https = require('https');
+  const url = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
+  res.setHeader('Content-Type', 'application/javascript');
+  https.get(url, (r) => {
+    if (r.statusCode !== 200) {
+      res.status(r.statusCode || 500);
+    }
+    r.pipe(res);
+  }).on('error', (err) => {
+    res.status(500).send('// Erro ao carregar jsPDF Autotable: ' + (err && err.message || 'erro desconhecido'));
+  });
+});
+
+// Proxy local para Chart.js
+app.get('/vendor/chart.min.js', (req, res) => {
+  const https = require('https');
+  const url = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+  res.setHeader('Content-Type', 'application/javascript');
+  https.get(url, (r) => {
+    if (r.statusCode !== 200) {
+      res.status(r.statusCode || 500);
+    }
+    r.pipe(res);
+  }).on('error', (err) => {
+    res.status(500).send('// Erro ao carregar Chart.js: ' + (err && err.message || 'erro desconhecido'));
+  });
+});
+
+// Rota para servir a aplicação (fallback SPA)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index_old.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  console.log(`Acesse: http://localhost:${PORT}`);
-  console.log('Credenciais: admin@recepcao.com / admin123');
-});
+const USE_HTTPS = String(process.env.HTTPS_ENABLE || '').toLowerCase() === 'true';
+if (USE_HTTPS) {
+  const https = require('https');
+  const opts = {};
+  try {
+    if (process.env.SSL_PFX_PATH && fs.existsSync(process.env.SSL_PFX_PATH)) {
+      opts.pfx = fs.readFileSync(process.env.SSL_PFX_PATH);
+      if (process.env.SSL_PFX_PASSWORD) opts.passphrase = process.env.SSL_PFX_PASSWORD;
+    } else if (process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH && fs.existsSync(process.env.SSL_KEY_PATH) && fs.existsSync(process.env.SSL_CERT_PATH)) {
+      opts.key = fs.readFileSync(process.env.SSL_KEY_PATH);
+      opts.cert = fs.readFileSync(process.env.SSL_CERT_PATH);
+    } else {
+      console.warn('HTTPS_ENABLE=true, mas certificados nao foram encontrados. Caindo para HTTP.');
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Servidor rodando na porta ${PORT}`);
+        console.log(`Acesse: http://localhost:${PORT} ou http://[IP_DO_SERVIDOR]:${PORT}`);
+        console.log('Credenciais: admin@recepcao.com / admin123');
+      });
+      return;
+    }
+    https.createServer(opts, app).listen(PORT, '0.0.0.0', () => {
+      console.log(`Servidor HTTPS rodando na porta ${PORT}`);
+      console.log(`Acesse: https://localhost:${PORT} ou https://[IP_DO_SERVIDOR]:${PORT}`);
+      console.log('Credenciais: admin@recepcao.com / admin123');
+    });
+  } catch (e) {
+    console.error('Falha ao iniciar HTTPS, caindo para HTTP:', e && e.message);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Servidor rodando na porta ${PORT}`);
+      console.log(`Acesse: http://localhost:${PORT} ou http://[IP_DO_SERVIDOR]:${PORT}`);
+      console.log('Credenciais: admin@recepcao.com / admin123');
+    });
+  }
+} else {
+  app.listen(PORT, '0.0.0.0', () => {
+    const networkInterfaces = os.networkInterfaces();
+    let serverIP = 'localhost';
+    
+    // Tentar encontrar o primeiro IP IPv4 não-localhost
+    for (const interfaceName in networkInterfaces) {
+      const addresses = networkInterfaces[interfaceName];
+      for (const addr of addresses) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          serverIP = addr.address;
+          break;
+        }
+      }
+      if (serverIP !== 'localhost') break;
+    }
+    
+    console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Acesse localmente: http://localhost:${PORT}`);
+    if (serverIP !== 'localhost') {
+      console.log(`Acesse pela rede: http://${serverIP}:${PORT}`);
+    }
+    console.log('Credenciais: admin@recepcao.com / admin123');
+  });
+}

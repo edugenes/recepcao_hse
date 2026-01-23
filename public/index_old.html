@@ -1,6 +1,240 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+  <script>
+  // SOLUÇÃO DEFINITIVA - FORÇAR HTTP EM TUDO
+  (function(){
+    'use strict';
+    
+    // 1. Redirecionar HTTPS para HTTP IMEDIATAMENTE
+    if (location.protocol === 'https:') {
+      location.replace('http://' + location.host + location.pathname + location.search + location.hash);
+      return;
+    }
+    
+    // 2. Função auxiliar para converter HTTPS para HTTP - VERSÃO MELHORADA
+    function toHttp(url) {
+      if (!url || typeof url !== 'string') return url;
+      
+      // Converter HTTPS explícito
+      if (url.startsWith('https://')) {
+        return url.replace('https://', 'http://');
+      }
+      
+      // Converter protocolo relativo
+      if (url.startsWith('//')) {
+        return 'http:' + url;
+      }
+      
+      // Interceptar URLs que contêm o host atual em HTTPS (mesmo que não comece com https://)
+      const currentHost = location.host;
+      if (url.includes('https://' + currentHost)) {
+        return url.replace(/https:\/\//g, 'http://');
+      }
+      
+      // Se for URL relativa, garantir que será resolvida como HTTP
+      // URLs relativas começam com / ou não têm protocolo
+      if (url.startsWith('/') && !url.startsWith('//')) {
+        // URL relativa - garantir que será resolvida como HTTP
+        // O navegador vai resolver baseado em location.protocol, que já forçamos para HTTP
+        return url;
+      }
+      
+      return url;
+    }
+    
+    // 2.1. Função para garantir que URLs absolutas sejam HTTP
+    function ensureHttpUrl(url) {
+      if (!url || typeof url !== 'string') return url;
+      
+      // Se já é uma URL absoluta HTTP, retornar como está
+      if (url.startsWith('http://')) return url;
+      
+      // Se é HTTPS, converter
+      if (url.startsWith('https://')) {
+        return url.replace('https://', 'http://');
+      }
+      
+      // Se é protocolo relativo, garantir HTTP
+      if (url.startsWith('//')) {
+        return 'http:' + url;
+      }
+      
+      // Se é URL relativa, resolver como HTTP
+      if (url.startsWith('/')) {
+        return 'http://' + location.host + url;
+      }
+      
+      // Se não começa com /, pode ser relativa ao diretório atual
+      if (!url.match(/^[a-zA-Z][a-zA-Z\d+\-.]*:/)) {
+        const baseUrl = 'http://' + location.host + location.pathname.replace(/[^/]*$/, '');
+        return new URL(url, baseUrl).href.replace('https://', 'http://');
+      }
+      
+      return url;
+    }
+    
+    // 3. Interceptar fetch - VERSÃO ROBUSTA
+    if (window.fetch) {
+      const _fetch = window.fetch;
+      window.fetch = function(input, init) {
+        try {
+          let urlToFetch = input;
+          
+          if (typeof input === 'string') {
+            urlToFetch = ensureHttpUrl(input);
+          } else if (input instanceof Request) {
+            const httpUrl = ensureHttpUrl(input.url);
+            urlToFetch = new Request(httpUrl, input);
+          } else if (input && typeof input === 'object') {
+            if (input.url) {
+              urlToFetch = Object.assign({}, input, { url: ensureHttpUrl(input.url) });
+            } else {
+              urlToFetch = input;
+            }
+          }
+          
+          return _fetch.call(this, urlToFetch, init);
+        } catch (e) {
+          console.error('Erro ao interceptar fetch:', e);
+          // Tentar novamente com conversão básica
+          try {
+            if (typeof input === 'string') {
+              return _fetch.call(this, toHttp(input), init);
+            }
+          } catch (e2) {}
+          return _fetch.call(this, input, init);
+        }
+      };
+    }
+    
+    // 4. Interceptar XMLHttpRequest - VERSÃO ROBUSTA
+    if (window.XMLHttpRequest) {
+      const _open = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        try {
+          const httpUrl = ensureHttpUrl(url);
+          const args = Array.prototype.slice.call(arguments, 2);
+          return _open.apply(this, [method, httpUrl, ...args]);
+        } catch (e) {
+          console.error('Erro ao interceptar XMLHttpRequest:', e);
+          // Tentar novamente com conversão básica
+          try {
+            const httpUrl = toHttp(url);
+            const args = Array.prototype.slice.call(arguments, 2);
+            return _open.apply(this, [method, httpUrl, ...args]);
+          } catch (e2) {
+            return _open.apply(this, arguments);
+          }
+        }
+      };
+    }
+    
+    // 5. Interceptar criação de elementos - VERSÃO MELHORADA
+    const _createElement = document.createElement;
+    document.createElement = function(tagName) {
+      const el = _createElement.call(this, tagName);
+      const tagLower = tagName.toLowerCase();
+      
+      if (['script', 'link', 'img', 'iframe'].includes(tagLower)) {
+        // Interceptar setAttribute
+        const _setAttribute = el.setAttribute;
+        el.setAttribute = function(name, value) {
+          if ((name === 'src' || name === 'href') && typeof value === 'string') {
+            value = ensureHttpUrl(value);
+          }
+          return _setAttribute.call(this, name, value);
+        };
+        
+        // Interceptar propriedades diretamente (alguns scripts usam el.src = ...)
+        if (tagLower === 'script' || tagLower === 'img') {
+          Object.defineProperty(el, 'src', {
+            get: function() { return this.getAttribute('src') || ''; },
+            set: function(value) { this.setAttribute('src', ensureHttpUrl(value)); },
+            configurable: true
+          });
+        }
+        
+        if (tagLower === 'link') {
+          Object.defineProperty(el, 'href', {
+            get: function() { return this.getAttribute('href') || ''; },
+            set: function(value) { this.setAttribute('href', ensureHttpUrl(value)); },
+            configurable: true
+          });
+        }
+      }
+      
+      return el;
+    };
+    
+    // 6. Reescrever recursos no DOM - VERSÃO MELHORADA
+    function fixResources() {
+      try {
+        // Scripts
+        document.querySelectorAll('script[src]').forEach(function(el) {
+          const src = el.getAttribute('src');
+          if (src) {
+            const httpSrc = ensureHttpUrl(src);
+            if (httpSrc !== src) {
+              el.setAttribute('src', httpSrc);
+            }
+          }
+        });
+        
+        // Links (CSS, etc)
+        document.querySelectorAll('link[href]').forEach(function(el) {
+          const href = el.getAttribute('href');
+          if (href) {
+            const httpHref = ensureHttpUrl(href);
+            if (httpHref !== href) {
+              el.setAttribute('href', httpHref);
+            }
+          }
+        });
+        
+        // Imagens
+        document.querySelectorAll('img[src]').forEach(function(el) {
+          const src = el.getAttribute('src');
+          if (src) {
+            const httpSrc = ensureHttpUrl(src);
+            if (httpSrc !== src) {
+              el.setAttribute('src', httpSrc);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('Erro ao corrigir recursos:', e);
+      }
+    }
+    
+    // 7. Interceptar antes do DOM estar pronto
+    fixResources();
+    
+    // 8. Executar quando DOM estiver pronto
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fixResources);
+    } else {
+      setTimeout(fixResources, 0);
+    }
+    
+    // 9. Observar mudanças no DOM
+    try {
+      new MutationObserver(function(mutations) {
+        fixResources();
+      }).observe(document.documentElement || document.body || document, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'href']
+      });
+    } catch (e) {
+      console.error('Erro ao criar MutationObserver:', e);
+    }
+    
+    // 10. (Removido) Evitar redefinir window.location – navegadores modernos bloqueiam
+  })();
+  </script>
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' http://cdn.jsdelivr.net https://cdn.jsdelivr.net http://192.168.1.20:3000 http://192.168.0.250:3000 http://localhost:3000; style-src 'self' 'unsafe-inline' http://cdn.jsdelivr.net https://cdn.jsdelivr.net; img-src 'self' data: http: https:; connect-src 'self' http://192.168.1.20:3000 http://192.168.0.250:3000 http://localhost:3000 http: https:; font-src 'self' data: http: https:;">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Recepção de Visitantes - v2.0</title>
@@ -1561,6 +1795,101 @@
             margin: 15px 0;
         }
 
+        /* Hotelaria */
+        .hotelaria-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .hotelaria-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            background: #f9fafb;
+        }
+
+        .hotelaria-item input {
+            width: 18px;
+            height: 18px;
+        }
+
+        .hotelaria-item label {
+            margin: 0;
+            font-weight: 500;
+            color: #111827;
+        }
+
+        .hotelaria-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .hotelaria-observacoes {
+            margin-top: 12px;
+        }
+
+        .hotelaria-observacoes textarea {
+            width: 100%;
+            min-height: 140px;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        /* Submenus Hotelaria */
+        .hotelaria-tabs {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0 14px 0;
+            flex-wrap: wrap;
+        }
+        .hotelaria-tab {
+            padding: 8px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            background: #f9fafb;
+            cursor: pointer;
+        }
+        .hotelaria-tab.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #fff;
+            border-color: #059669;
+        }
+        .hotelaria-section {
+            display: none;
+        }
+        .hotelaria-section.active {
+            display: block;
+        }
+
+        .hotelaria-tip {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .hotelaria-msg {
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .hotelaria-msg.success {
+            color: #0f766e;
+        }
+
+        .hotelaria-msg.error {
+            color: #b91c1c;
+        }
+
         @media (max-width: 768px) {
             .form-row {
                 grid-template-columns: 1fr;
@@ -1576,8 +1905,9 @@
             }
         }
     </style>
-        <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js?v=2.0"></script>
-        <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js?v=2.0"></script>
+        <script src="/vendor/jspdf.umd.min.js?v=2.0"></script>
+        <script src="/vendor/jspdf.plugin.autotable.min.js?v=2.0"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <!-- Container de Notificações -->
@@ -1597,6 +1927,7 @@
                 <button class="nav-btn" onclick="showSection('crachas', this)">Crachás</button>
                 <button class="nav-btn" onclick="showSection('relatorios', this)">Relatórios</button>
                 <button class="nav-btn" onclick="showSection('chaves', this)">Chaves</button>
+                <button class="nav-btn" onclick="showSection('hotelaria', this)">Hotelaria</button>
                 <button class="nav-btn" onclick="window.open('/dashboard', '_blank')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">📊 Dashboard</button>
                 
                 <button id="adminBtn" class="nav-btn hidden" onclick="showSection('admin', this)">Admin</button>
@@ -2046,6 +2377,18 @@
                 </div>
             </div>
 
+            <!-- Hotelaria -->
+            <div id="hotelaria" class="section hidden">
+                <h2>Hotelaria</h2>
+                <div class="card" style="max-width:980px;">
+                    <div id="hotelariaMsg" class="" style="margin-bottom:10px;"></div>
+                    <p style="color: #6b7280; margin-bottom: 20px;">Sistema de gestão de hotelaria do HSE.</p>
+                    <div id="hotelariaContent">
+                        <!-- Conteúdo da hotelaria será adicionado aqui -->
+                    </div>
+                </div>
+            </div>
+
             <!-- Admin: cadastro de usuários -->
             <div id="admin" class="section hidden">
                 <h2>Admin - Usuários</h2>
@@ -2070,7 +2413,8 @@
                                 <label>Papel</label>
                                 <select id="uRole">
                                     <option value="user">Usuário</option>
-                                    <option value="admin">Admin</option>
+                                    <option value="hotelaria_gestor">Admin Hotelaria</option>
+                                    <option value="admin">Admin Geral</option>
                                 </select>
                             </div>
                         </div>
@@ -2101,9 +2445,22 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="/vendor/qrcode.min.js"></script>
     <script>
         let token = localStorage.getItem('token');
+        let currentUser = null;
+        let currentUserRole = null;
+        let currentUserName = '';
+        try {
+            const storedProfile = JSON.parse(localStorage.getItem('userProfile') || 'null');
+            if (storedProfile) {
+                currentUser = storedProfile;
+                currentUserRole = (storedProfile.role || '').toLowerCase();
+                currentUserName = storedProfile.nome || storedProfile.email || '';
+            }
+        } catch {
+            // ignore
+        }
         let currentStream = null;
         let capturedImageData = null;
 
@@ -2115,6 +2472,40 @@
                 const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
                 return JSON.parse(jsonPayload);
             } catch { return null; }
+        }
+
+        function isHotelariaOnlyRole(role = currentUserRole) {
+            const r = (role || '').toLowerCase();
+            return r === 'hotelaria_colab' || r === 'hotelaria_gestor';
+        }
+
+        function setCurrentUser(user) {
+            if (!user) return;
+            currentUser = user;
+            currentUserRole = (user.role || '').toLowerCase();
+            currentUserName = user.nome || user.email || '';
+            localStorage.setItem('userProfile', JSON.stringify(user));
+        }
+
+        function applyNavigationRestrictions() {
+            const hotelariaOnly = isHotelariaOnlyRole();
+            const navButtons = document.querySelectorAll('.nav-btn');
+            navButtons.forEach(btn => {
+                const text = (btn.textContent || '').toLowerCase();
+                const isHotelBtn = text.includes('hotelaria');
+                const isLogout = text.includes('sair');
+                const isAdmin = btn.id === 'adminBtn';
+                if (hotelariaOnly) {
+                    if (!isHotelBtn && !isLogout && !isAdmin) {
+                        btn.classList.add('hidden');
+                    }
+                } else {
+                    btn.classList.remove('hidden');
+                }
+            });
+            if (hotelariaOnly) {
+                showSection('hotelaria');
+            }
         }
 
         function isTokenValid(t) {
@@ -2131,25 +2522,35 @@
 
         if (!isTokenValid(token)) {
             localStorage.removeItem('token');
+            localStorage.removeItem('userProfile');
             token = null;
+            currentUser = null;
+            currentUserRole = null;
+            currentUserName = '';
             document.getElementById('adminBtn').classList.add('hidden');
             showSection('login');
         } else {
             // token válido: liberar botão admin conforme role
             const payload = decodeJwtPayload(token);
+            currentUserRole = payload?.role?.toLowerCase() || currentUserRole;
+            if (!currentUserName && payload?.email) {
+                currentUserName = payload.email;
+            }
             if (payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'))) {
                 document.getElementById('adminBtn').classList.remove('hidden');
             } else {
                 document.getElementById('adminBtn').classList.add('hidden');
             }
-            showSection('cadastro');
+            applyNavigationRestrictions();
+            const initialSection = isHotelariaOnlyRole() ? 'hotelaria' : 'cadastro';
+            showSection(initialSection);
         }
 
         function doLogin() {
-            const email = (document.getElementById('loginEmail')?.value || '').trim();
+            const login = (document.getElementById('loginEmail')?.value || '').trim();
             const senha = (document.getElementById('loginSenha')?.value || '').trim();
-            if (!email || !senha) {
-                showMessage('Informe email e senha', 'error');
+            if (!login || !senha) {
+                showMessage('Informe login e senha', 'error');
                 return;
             }
 
@@ -2158,16 +2559,28 @@
             const originalText = loginBtn.textContent;
             loginBtn.textContent = 'Entrando...';
             loginBtn.disabled = true;
-            fetch('/api/login', {
+            
+            // Garantir que a URL seja HTTP
+            const apiUrl = '/api/login';
+            
+            fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, senha })
+                body: JSON.stringify({ login: login, senha: senha })
             })
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                return res.json();
+            })
             .then(data => {
                 if (data.token) {
                     token = data.token;
                     localStorage.setItem('token', token);
+                    if (data.user) {
+                        setCurrentUser(data.user);
+                    }
                     // liberar botão admin se role=admin
                     const payload = decodeJwtPayload(token);
                     if (payload && (payload.role === 'admin' || (payload.email && payload.email.toLowerCase() === 'admin@recepcao.com'))) {
@@ -2175,19 +2588,32 @@
                     } else {
                         document.getElementById('adminBtn').classList.add('hidden');
                     }
+                    currentUserRole = payload?.role?.toLowerCase() || currentUserRole;
+                    applyNavigationRestrictions();
+                    // Recriar UI de Hotelaria com permissões atualizadas
+                    if (typeof renderHotelariaUI === 'function') {
+                        renderHotelariaUI();
+                    }
                     showSuccess('Login realizado com sucesso!', { 
                         title: 'Bem-vindo!',
                         sound: true 
                     });
-                    setTimeout(() => showSection('cadastro'), 1000);
+                    const nextSection = isHotelariaOnlyRole() ? 'hotelaria' : 'cadastro';
+                    setTimeout(() => showSection(nextSection), 600);
                 } else {
-                    showError('Credenciais inválidas', { 
+                    showError(data.error || 'Credenciais inválidas', { 
                         title: 'Falha no Login',
                         sound: true 
                     });
                 }
             })
-            .catch(() => showMessage('Erro ao fazer login', 'error'))
+            .catch(err => {
+                console.error('Erro no login:', err);
+                showError('Erro ao fazer login: ' + (err.message || 'Erro de conexão'), { 
+                    title: 'Erro',
+                    sound: true 
+                });
+            })
             .finally(() => {
                 loginBtn.textContent = originalText;
                 loginBtn.disabled = false;
@@ -2196,6 +2622,7 @@
 
         function logout() {
             localStorage.removeItem('token');
+            localStorage.removeItem('userProfile');
             location.reload();
         }
 
@@ -3081,6 +3508,10 @@
         }
 
         function showSection(sectionName, el) {
+            if (isHotelariaOnlyRole() && sectionName !== 'hotelaria' && sectionName !== 'login') {
+                sectionName = 'hotelaria';
+                showWarning('Acesso restrito à Hotelaria.');
+            }
             // Esconder todas as seções
             document.querySelectorAll('.section').forEach(section => {
                 section.classList.add('hidden');
@@ -3095,6 +3526,11 @@
             
             // Mostrar seção selecionada
             document.getElementById(sectionName).classList.remove('hidden');
+            
+            // Garantir recarga de setores quando entrar em Hotelaria com token válido
+            if (sectionName === 'hotelaria' && token && typeof loadHotelariaSetores === 'function') {
+                loadHotelariaSetores();
+            }
             
             // Mostrar/ocultar navegação conforme seção
             const navEl = document.getElementById('mainNav');
@@ -3617,6 +4053,14 @@
             });
         }
 
+        function getRoleLabel(role) {
+            const r = (role || '').toLowerCase();
+            if (r === 'admin') return 'Admin Geral';
+            if (r === 'hotelaria_gestor') return 'Admin Hotelaria';
+            if (r === 'hotelaria_colab') return 'Colab Hotelaria';
+            return 'Usuário';
+        }
+
         function carregarUsuarios() {
             fetch('/api/usuarios', {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -3631,7 +4075,7 @@
                         <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.nome}</td>
                         <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.username || ''}</td>
                         <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.email}</td>
-                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${u.role}</td>
+                        <td style="padding:8px; border-bottom:1px solid #e5e7eb;">${getRoleLabel(u.role)}</td>
                         <td style="padding:8px; border-bottom:1px solid #e5e7eb; text-align: center;">
                             ${isAdmin ? `
                                 <div style="display: flex; gap: 8px; justify-content: center; align-items: center;">
@@ -3704,6 +4148,1387 @@
 
         // (biometria removida)
 
+        // ===== HOTELARIA =====
+        const HOTELARIA_ITENS = [
+            { id: 'cama', label: 'Cama' },
+            { id: 'poltrona', label: 'Poltrona' },
+            { id: 'colchao', label: 'Colchão' },
+            { id: 'suporte_soro', label: 'Suporte de Soro' },
+            { id: 'mesa_inox', label: 'Mesa Inox' },
+            { id: 'escadinha', label: 'Escadinha' },
+            { id: 'ar_condicionado', label: 'Ar Condicionado' },
+            { id: 'ventilador', label: 'Ventilador' },
+            { id: 'porta', label: 'Porta' },
+            { id: 'lampada', label: 'Lâmpada' },
+            { id: 'interruptor', label: 'Interruptor' },
+            { id: 'tomada', label: 'Tomada' },
+            { id: 'cortina', label: 'Cortina' },
+            { id: 'disp_toalha', label: 'Dispenser para toalha' },
+            { id: 'disp_papel', label: 'Dispenser para papel higiênico' },
+            { id: 'disp_sabonete', label: 'Dispenser sabonete líquido' },
+            { id: 'chuveiro', label: 'Chuveiro' },
+            { id: 'vaso', label: 'Vaso Sanitário' },
+            { id: 'fechadura', label: 'Fechadura' },
+        ];
+
+        const HOTELARIA_STATE = {
+            setores: [],
+            enfermarias: [],
+            leitos: [],
+            selectedSetor: '',
+            selectedEnfermaria: '',
+            selectedLeito: ''
+        };
+
+        function setHotelariaMsg(text, type = 'info') {
+            const msgEl = document.getElementById('hotelariaMsg');
+            if (!msgEl) return;
+            msgEl.className = 'hotelaria-msg';
+            if (type === 'success') msgEl.classList.add('success');
+            if (type === 'error') msgEl.classList.add('error');
+            msgEl.textContent = text;
+        }
+
+        function todayISO() {
+            return new Date().toISOString().slice(0, 10);
+        }
+
+        function buildHotelariaChecklistGrid() {
+            return HOTELARIA_ITENS.map(item => `
+                <div class="hotelaria-item">
+                    <input type="checkbox" id="hotel_${item.id}" name="hotelariaItens" value="${item.id}">
+                    <label for="hotel_${item.id}">${item.label}</label>
+                </div>
+            `).join('');
+        }
+
+        function renderHotelariaUI() {
+            const container = document.getElementById('hotelariaContent');
+            if (!container) return;
+            const isGestor = isHotelariaOnlyRole() && currentUserRole === 'hotelaria_gestor' || currentUserRole === 'admin';
+
+            container.innerHTML = `
+                <div class="hotelaria-tabs">
+                    <button type="button" class="hotelaria-tab active" data-tab="tab-checklist">Checklist</button>
+                    <button type="button" class="hotelaria-tab" data-tab="tab-guias">Guias/PDF</button>
+                    <button type="button" class="hotelaria-tab" data-tab="tab-relatorios">Relatórios</button>
+                    <button type="button" class="hotelaria-tab" data-tab="tab-admin">Administração</button>
+                    <button type="button" class="hotelaria-tab" data-tab="tab-dashboard">Dashboard</button>
+                </div>
+
+                <div id="tab-checklist" class="hotelaria-section active">
+                <form id="hotelariaForm" class="hotelaria-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Setor *</label>
+                            <select id="hotelSetor" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Enfermaria *</label>
+                            <select id="hotelEnfermaria" required>
+                                <option value="">Selecione uma enfermaria</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Leito *</label>
+                            <select id="hotelLeito" required>
+                                <option value="">Selecione um leito</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Data *</label>
+                            <input type="date" id="hotelData" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Colaborador *</label>
+                            <input type="text" id="hotelColaborador" placeholder="Nome completo" required>
+                        </div>
+                    </div>
+
+                    <div class="hotelaria-grid">
+                        ${buildHotelariaChecklistGrid()}
+                    </div>
+
+                    <div class="hotelaria-observacoes">
+                        <label for="hotelObs">Observações</label>
+                        <textarea id="hotelObs" placeholder="Digite observações gerais do leito/visita"></textarea>
+                    </div>
+
+                    <div class="hotelaria-actions">
+                        <button type="button" class="btn" id="btnGuias">Gerar guias (PDF)</button>
+                        <button type="submit" class="btn btn-success">Salvar checklist</button>
+                        <span class="hotelaria-tip">Registros salvos no banco. Acesso restrito conforme perfil.</span>
+                    </div>
+                </form>
+                </div>
+
+                <div id="tab-guias" class="hotelaria-section">
+                    <p style="color:#374151; margin-bottom:10px;">Selecione um setor para gerar guias em PDF (uma por leito ativo).</p>
+                    <div class="hotelaria-actions">
+                        <button type="button" class="btn" id="btnGuiasOnly">Gerar guias (PDF)</button>
+                    </div>
+                </div>
+
+                ${isGestor ? `
+                <div id="tab-admin" class="hotelaria-section">
+                    <h3 style="margin-bottom: 20px; color: #1f2937;">Administração de Hotelaria</h3>
+                    <p style="color: #6b7280; margin-bottom: 24px; font-size: 14px;">Gerencie Setores, Enfermarias e Leitos do sistema. A hierarquia é: <strong>Setor → Enfermaria → Leito</strong>.</p>
+
+                    <!-- SEÇÃO: SETORES -->
+                    <div class="card" style="margin-bottom: 24px; border-left: 4px solid #3b82f6;">
+                        <h4 style="margin-bottom: 12px; color: #1f2937; font-size: 18px;">📋 1. Cadastro de Setores</h4>
+                        <p style="color: #6b7280; margin-bottom: 16px; font-size: 13px;">Setores são unidades maiores (ex.: UTI, Clínica Médica, Cirurgia).</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><strong>Nome do Setor *</strong></label>
+                                <input type="text" id="admSetorNome" placeholder="Ex.: UTI, Clínica Médica, Cirurgia" required>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Tipo *</strong></label>
+                                <select id="admSetorTipo" required>
+                                    <option value="UTI">UTI</option>
+                                    <option value="Enfermaria">Enfermaria</option>
+                                    <option value="Apartamento">Apartamento</option>
+                                    <option value="Outro">Outro</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Status *</strong></label>
+                                <select id="admSetorStatus" required>
+                                    <option value="ativo">Ativo</option>
+                                    <option value="inativo">Inativo</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="hotelaria-actions">
+                            <button type="button" class="btn btn-success" id="btnSalvarSetor">💾 Salvar Setor</button>
+                        </div>
+                        <div style="margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 6px;">
+                            <strong style="color: #374151; font-size: 13px;">Setores Cadastrados:</strong>
+                            <div id="hotelListaSetores" style="margin-top: 8px; font-size: 14px; color: #6b7280;"></div>
+                        </div>
+                    </div>
+
+                    <!-- SEÇÃO: ENFERMARIAS -->
+                    <div class="card" style="margin-bottom: 24px; border-left: 4px solid #10b981;">
+                        <h4 style="margin-bottom: 12px; color: #1f2937; font-size: 18px;">🏥 2. Cadastro de Enfermarias</h4>
+                        <p style="color: #6b7280; margin-bottom: 16px; font-size: 13px;">Enfermarias ficam dentro de um Setor. Ex.: Setor "UTI" pode ter "UTI 1", "UTI 2", etc.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><strong>Setor *</strong></label>
+                                <select id="admEnfermariaSetor" required>
+                                    <option value="">Selecione um setor</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Nome da Enfermaria *</strong></label>
+                                <input type="text" id="admEnfermariaNome" placeholder="Ex.: UTI 1, UTI 2, Enfermaria 301" required>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Status *</strong></label>
+                                <select id="admEnfermariaStatus" required>
+                                    <option value="ativo">Ativo</option>
+                                    <option value="inativo">Inativo</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="hotelaria-actions">
+                            <button type="button" class="btn btn-success" id="btnSalvarEnfermaria">💾 Salvar Enfermaria</button>
+                        </div>
+                        <div style="margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 6px;">
+                            <strong style="color: #374151; font-size: 13px;">Enfermarias Cadastradas:</strong>
+                            <div id="hotelListaEnfermarias" style="margin-top: 8px; font-size: 14px; color: #6b7280;"></div>
+                        </div>
+                    </div>
+
+                    <!-- SEÇÃO: LEITOS -->
+                    <div class="card" style="margin-bottom: 24px; border-left: 4px solid #f59e0b;">
+                        <h4 style="margin-bottom: 12px; color: #1f2937; font-size: 18px;">🛏️ 3. Cadastro de Leitos</h4>
+                        <p style="color: #6b7280; margin-bottom: 16px; font-size: 13px;">Leitos ficam dentro de uma Enfermaria. Primeiro selecione o Setor, depois a Enfermaria.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><strong>Setor *</strong></label>
+                                <select id="admLeitoSetor" required>
+                                    <option value="">Selecione um setor</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Enfermaria *</strong></label>
+                                <select id="admLeitoEnfermaria" required>
+                                    <option value="">Selecione primeiro o setor</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Identificação do Leito *</strong></label>
+                                <input type="text" id="admLeitoIdent" placeholder="Ex.: Leito 1, 301A, AP-101" required>
+                            </div>
+                            <div class="form-group">
+                                <label><strong>Status *</strong></label>
+                                <select id="admLeitoStatus" required>
+                                    <option value="ativo">Ativo</option>
+                                    <option value="inativo">Inativo</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="hotelaria-actions">
+                            <button type="button" class="btn btn-success" id="btnSalvarLeito">💾 Salvar Leito</button>
+                        </div>
+                        <div style="margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 6px;">
+                            <strong style="color: #374151; font-size: 13px;">Leitos Cadastrados:</strong>
+                            <div id="hotelListaLeitos" style="margin-top: 8px; font-size: 14px; color: #6b7280;"></div>
+                        </div>
+                    </div>
+                </div>
+                ` : '<div id="tab-admin" class="hotelaria-section"></div>'}
+
+                <div id="tab-relatorios" class="hotelaria-section">
+                    <h3 style="margin-bottom: 20px; color: #1f2937;">📊 Relatórios de Hotelaria</h3>
+                    
+                    <!-- Filtros -->
+                    <div class="card" style="margin-bottom: 24px; padding: 20px;">
+                        <h4 style="margin-bottom: 16px; color: #374151;">🔍 Filtros de Pesquisa</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Data Inicial</label>
+                                <input type="date" id="relDataInicio" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Data Final</label>
+                                <input type="date" id="relDataFim" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Setor</label>
+                                <select id="relSetor" class="form-control">
+                                    <option value="">Todos os setores</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Enfermaria</label>
+                                <select id="relEnfermaria" class="form-control">
+                                    <option value="">Todas as enfermarias</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Leito</label>
+                                <select id="relLeito" class="form-control">
+                                    <option value="">Todos os leitos</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Colaborador</label>
+                                <input type="text" id="relColaborador" class="form-control" placeholder="Nome do colaborador">
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
+                                <button type="button" class="btn btn-primary" id="btnBuscarRelatorios" style="flex: 1;">🔍 Buscar</button>
+                                <button type="button" class="btn" id="btnLimparFiltros" style="flex: 1;">🔄 Limpar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Estatísticas Resumidas -->
+                    <div id="relEstatisticas" style="display: none; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                            <div class="card" style="padding: 16px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                <div style="font-size: 32px; font-weight: bold;" id="relTotalChecklists">0</div>
+                                <div style="font-size: 14px; opacity: 0.9;">Total de Checklists</div>
+                            </div>
+                            <div class="card" style="padding: 16px; text-align: center; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                                <div style="font-size: 32px; font-weight: bold;" id="relTotalSetores">0</div>
+                                <div style="font-size: 14px; opacity: 0.9;">Setores Únicos</div>
+                            </div>
+                            <div class="card" style="padding: 16px; text-align: center; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;">
+                                <div style="font-size: 32px; font-weight: bold;" id="relTotalLeitos">0</div>
+                                <div style="font-size: 14px; opacity: 0.9;">Leitos Únicos</div>
+                            </div>
+                            <div class="card" style="padding: 16px; text-align: center; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white;">
+                                <div style="font-size: 32px; font-weight: bold;" id="relTotalColaboradores">0</div>
+                                <div style="font-size: 14px; opacity: 0.9;">Colaboradores</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gráficos -->
+                    <div id="relGraficos" style="display: none; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px;">
+                            <div class="card" style="padding: 16px;">
+                                <h4 style="margin-bottom: 12px;">Checklists por Dia</h4>
+                                <div style="position: relative; height: 260px; width: 100%; overflow:hidden;">
+                                    <canvas id="chartRelDia" style="width:100%; height:100%;"></canvas>
+                                </div>
+                            </div>
+                            <div class="card" style="padding: 16px;">
+                                <h4 style="margin-bottom: 12px;">Checklists por Setor</h4>
+                                <div style="position: relative; height: 260px; width: 100%; overflow:hidden;">
+                                    <canvas id="chartRelSetor" style="width:100%; height:100%;"></canvas>
+                                </div>
+                            </div>
+                            <div class="card" style="padding: 16px;">
+                                <h4 style="margin-bottom: 12px;">Checklists por Colaborador</h4>
+                                <div style="position: relative; height: 260px; width: 100%; overflow:hidden;">
+                                    <canvas id="chartRelColaborador" style="width:100%; height:100%;"></canvas>
+                                </div>
+                            </div>
+                            <div class="card" style="padding: 16px;">
+                                <h4 style="margin-bottom: 12px;">Itens Mais Verificados</h4>
+                                <div style="position: relative; height: 260px; width: 100%; overflow:hidden;">
+                                    <canvas id="chartRelItens" style="width:100%; height:100%;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Botões de Exportação -->
+                    <div style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-success" id="btnExportarPDF">📄 Exportar PDF</button>
+                        <button type="button" class="btn btn-primary" id="btnExportarExcel">📊 Exportar Excel</button>
+                        <button type="button" class="btn" id="btnImprimirRelatorio">🖨️ Imprimir</button>
+                    </div>
+
+                    <!-- Tabela de Resultados -->
+                    <div class="card" style="overflow-x: auto;">
+                        <div style="padding: 16px; border-bottom: 1px solid #e5e7eb;">
+                            <h4 style="margin: 0;">📋 Lista Detalhada de Checklists</h4>
+                        </div>
+                        <div id="relTabelaContainer" style="padding: 16px;">
+                            <p style="color: #6b7280; text-align: center; padding: 40px;">
+                                Selecione os filtros e clique em "Buscar" para visualizar os relatórios.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-dashboard" class="hotelaria-section">
+                    <p style="color:#374151; margin-bottom:10px;">Métricas básicas de Hotelaria (carregadas do backend).</p>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:16px;">
+                        <div class="card" style="padding:12px;">
+                            <h4>Checklists por dia</h4>
+                            <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
+                                <canvas id="chartChecklistsDia" style="width:100%; height:100%;"></canvas>
+                            </div>
+                        </div>
+                        <div class="card" style="padding:12px;">
+                            <h4>Checklists por setor</h4>
+                            <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
+                                <canvas id="chartChecklistsSetor" style="width:100%; height:100%;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('hotelData').value = todayISO();
+            document.getElementById('hotelColaborador').value = currentUserName || '';
+
+            document.getElementById('hotelariaForm').addEventListener('submit', handleHotelariaSubmit);
+            document.getElementById('btnGuias').addEventListener('click', generateGuiasPDF);
+
+            const setorSelect = document.getElementById('hotelSetor');
+            const enfSelect = document.getElementById('hotelEnfermaria');
+            const leitoSelect = document.getElementById('hotelLeito');
+            setorSelect.addEventListener('change', (e) => {
+                HOTELARIA_STATE.selectedSetor = e.target.value;
+                HOTELARIA_STATE.selectedEnfermaria = '';
+                loadHotelariaEnfermarias(e.target.value);
+            });
+            enfSelect.addEventListener('change', (e) => {
+                HOTELARIA_STATE.selectedEnfermaria = e.target.value;
+                loadHotelariaLeitos(e.target.value);
+            });
+            leitoSelect.addEventListener('change', (e) => {
+                HOTELARIA_STATE.selectedLeito = e.target.value;
+            });
+
+            if (isGestor) {
+                document.getElementById('btnSalvarSetor').addEventListener('click', salvarSetorAdmin);
+                document.getElementById('btnSalvarEnfermaria').addEventListener('click', salvarEnfermariaAdmin);
+                document.getElementById('btnSalvarLeito').addEventListener('click', salvarLeitoAdmin);
+                
+                // Carregar setores nos selects de administração
+                const admEnfSetor = document.getElementById('admEnfermariaSetor');
+                const admLeitoSetor = document.getElementById('admLeitoSetor');
+                if (admEnfSetor) {
+                    admEnfSetor.addEventListener('change', async (e) => {
+                        await loadHotelariaEnfermarias(e.target.value);
+                        renderListasAdmin();
+                    });
+                }
+                if (admLeitoSetor) {
+                    admLeitoSetor.addEventListener('change', (e) => {
+                        loadHotelariaEnfermarias(e.target.value, 'admLeitoEnfermaria');
+                    });
+                }
+            }
+
+            setHotelariaMsg('Selecione um setor para gerar guias e registrar o checklist.');
+            loadHotelariaSetores();
+
+            // Tabs
+            document.querySelectorAll('.hotelaria-tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    document.querySelectorAll('.hotelaria-tab').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.hotelaria-section').forEach(sec => sec.classList.remove('active'));
+                    btn.classList.add('active');
+                    const target = document.getElementById(tab);
+                    if (target) target.classList.add('active');
+                    if (tab === 'tab-dashboard') {
+                        loadHotelariaDashboard();
+                    } else if (tab === 'tab-relatorios') {
+                        setTimeout(() => initRelatorios(), 100);
+                    }
+                });
+            });
+
+            // Botão de guias na aba Guias
+            const btnGuiasOnly = document.getElementById('btnGuiasOnly');
+            if (btnGuiasOnly) {
+                btnGuiasOnly.addEventListener('click', generateGuiasPDF);
+            }
+        }
+
+        function preencherSelectSetores(selectId, incluirVazio = true) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            select.innerHTML = incluirVazio ? '<option value=\"\">Selecione um setor</option>' : '';
+            HOTELARIA_STATE.setores.forEach(s => {
+                if (s.status === 'ativo' || !incluirVazio) {
+                    select.innerHTML += `<option value=\"${s.id}\">${s.nome}</option>`;
+                }
+            });
+        }
+
+        function preencherSelectEnfermarias(selectId, incluirVazio = true) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            select.innerHTML = incluirVazio ? '<option value=\"\">Selecione uma enfermaria</option>' : '';
+            HOTELARIA_STATE.enfermarias.forEach(e => {
+                if (e.status === 'ativo' || !incluirVazio) {
+                    select.innerHTML += `<option value=\"${e.id}\">${e.nome}</option>`;
+                }
+            });
+        }
+
+        function preencherSelectLeitos() {
+            const select = document.getElementById('hotelLeito');
+            if (!select) return;
+            select.innerHTML = '<option value=\"\">Selecione um leito</option>';
+            HOTELARIA_STATE.leitos.forEach(l => {
+                if (l.status === 'ativo') {
+                    select.innerHTML += `<option value=\"${l.id}\">${l.identificacao}</option>`;
+                }
+            });
+        }
+
+        async function loadHotelariaSetores() {
+            if (!token) {
+                setHotelariaMsg('Faça login para carregar setores.', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/hotelaria/setores?somenteAtivos=ativo', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (!res.ok) {
+                    let detail = '';
+                    try {
+                        const err = await res.json();
+                        detail = err?.error ? `: ${err.error}` : '';
+                    } catch { /* ignore */ }
+                    setHotelariaMsg(`Erro ao carregar setores${detail}`, 'error');
+                    return;
+                }
+                const data = await res.json();
+                HOTELARIA_STATE.setores = data || [];
+                preencherSelectSetores('hotelSetor');
+                preencherSelectSetores('admLeitoSetor', false);
+                preencherSelectSetores('admEnfermariaSetor', false);
+                renderListasAdmin();
+                const first = HOTELARIA_STATE.setores[0];
+                if (first && !HOTELARIA_STATE.selectedSetor) {
+                    HOTELARIA_STATE.selectedSetor = first.id;
+                    document.getElementById('hotelSetor').value = first.id;
+                    await loadHotelariaEnfermarias(first.id);
+                }
+                // Se já temos setores, recarregar dashboard ao abrir aba
+                loadHotelariaDashboard(true);
+            } catch (e) {
+                setHotelariaMsg('Erro ao carregar setores', 'error');
+            }
+        }
+
+        async function loadHotelariaEnfermarias(setorId) {
+            HOTELARIA_STATE.enfermarias = [];
+            HOTELARIA_STATE.leitos = [];
+            preencherSelectEnfermarias('hotelEnfermaria');
+            preencherSelectLeitos();
+            const admEnfSelect = document.getElementById('admLeitoEnfermaria');
+            if (admEnfSelect) admEnfSelect.innerHTML = '';
+
+            if (!setorId) {
+                renderListasAdmin();
+                return;
+            }
+            try {
+                const res = await fetch(`/api/hotelaria/enfermarias?setor_id=${setorId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                HOTELARIA_STATE.enfermarias = data || [];
+                preencherSelectEnfermarias('hotelEnfermaria');
+                if (admEnfSelect) preencherSelectEnfermarias('admLeitoEnfermaria', false);
+                renderListasAdmin();
+                const first = HOTELARIA_STATE.enfermarias[0];
+                if (first) {
+                    HOTELARIA_STATE.selectedEnfermaria = first.id;
+                    const enfSel = document.getElementById('hotelEnfermaria');
+                    if (enfSel) enfSel.value = first.id;
+                    await loadHotelariaLeitos(first.id);
+                }
+            } catch (e) {
+                setHotelariaMsg('Erro ao carregar enfermarias', 'error');
+            }
+        }
+
+        async function loadHotelariaLeitos(enfermariaId) {
+            if (!enfermariaId) {
+                HOTELARIA_STATE.leitos = [];
+                preencherSelectLeitos();
+                renderListasAdmin();
+                return;
+            }
+            try {
+                const res = await fetch(`/api/hotelaria/leitos?enfermaria_id=${enfermariaId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await res.json();
+                HOTELARIA_STATE.leitos = data || [];
+                preencherSelectLeitos();
+                renderListasAdmin();
+                const first = HOTELARIA_STATE.leitos[0];
+                if (first) {
+                    HOTELARIA_STATE.selectedLeito = first.id;
+                    document.getElementById('hotelLeito').value = first.id;
+                }
+            } catch (e) {
+                setHotelariaMsg('Erro ao carregar leitos', 'error');
+            }
+        }
+
+        async function handleHotelariaSubmit(event) {
+            event.preventDefault();
+            const data = (document.getElementById('hotelData')?.value || '').trim();
+            const setorId = (document.getElementById('hotelSetor')?.value || '').trim();
+            const enfermariaId = (document.getElementById('hotelEnfermaria')?.value || '').trim();
+            const leitoId = (document.getElementById('hotelLeito')?.value || '').trim();
+            const colaborador = (document.getElementById('hotelColaborador')?.value || '').trim();
+            const obs = (document.getElementById('hotelObs')?.value || '').trim();
+
+            if (!data || !setorId || !enfermariaId || !leitoId || !colaborador) {
+                setHotelariaMsg('Preencha Setor, Enfermaria, Leito, Data e Colaborador.', 'error');
+                return;
+            }
+
+            const itensMarcados = HOTELARIA_ITENS
+                .filter(item => document.getElementById(`hotel_${item.id}`)?.checked)
+                .map(item => item.id);
+
+            try {
+                const res = await fetch('/api/hotelaria/checklists', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ setor_id: setorId, leito_id: leitoId, data, colaborador, itens: itensMarcados, observacoes: obs })
+                });
+                const resp = await res.json();
+                if (!res.ok) {
+                    setHotelariaMsg(resp.error || 'Erro ao salvar checklist', 'error');
+                    return;
+                }
+                setHotelariaMsg('Checklist salvo com sucesso.', 'success');
+                showSuccess('Checklist de hotelaria salvo no sistema.');
+            } catch (e) {
+                setHotelariaMsg('Erro ao salvar checklist', 'error');
+            }
+        }
+
+        function generateGuiasPDF() {
+            const setorId = (document.getElementById('hotelSetor')?.value || '').trim();
+            const enfermariaId = (document.getElementById('hotelEnfermaria')?.value || '').trim();
+            if (!setorId) {
+                showWarning('Selecione um setor para gerar as guias.');
+                return;
+            }
+            const setor = HOTELARIA_STATE.setores.find(s => `${s.id}` === `${setorId}`);
+            const enfermaria = HOTELARIA_STATE.enfermarias.find(e => `${e.id}` === `${enfermariaId}`);
+            const leitos = HOTELARIA_STATE.leitos.filter(l => l.status === 'ativo');
+            if (!leitos.length) {
+                showWarning('Nenhum leito ativo para este setor.');
+                return;
+            }
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                showWarning('Biblioteca jsPDF não carregada.');
+                return;
+            }
+            const doc = new window.jspdf.jsPDF();
+            const dateStr = todayISO().split('-').reverse().join('/');
+
+            const header = (leitoIdent) => {
+                // Banner (monocromático)
+                doc.setFillColor(230, 230, 230);
+                doc.roundedRect(10, 10, 190, 18, 3, 3, 'F');
+                doc.setTextColor(30, 30, 30);
+                doc.setFontSize(14);
+                doc.text('Hotelaria HSE - Guia de Checklist', 14, 22);
+
+                // Card de infos
+                doc.setTextColor(20, 20, 20);
+                doc.setFontSize(11);
+                doc.roundedRect(10, 32, 190, 34, 2, 2);
+                doc.text(`Setor: ${setor?.nome || ''}`, 14, 40);
+                doc.text(`Enfermaria: ${enfermaria?.nome || ''}`, 110, 40);
+                doc.text(`Leito: ${leitoIdent || ''}`, 14, 50);
+                doc.text(`Data: ${dateStr}`, 110, 50);
+                doc.text(`Colaborador: ${currentUserName || ''}`, 14, 60);
+            };
+
+            const checklist = (startY) => {
+                doc.setFontSize(12);
+                doc.text('Checklist', 14, startY);
+                const colX = [14, 110];
+                let yCol = [startY + 6, startY + 6];
+                HOTELARIA_ITENS.forEach((item, idx) => {
+                    const col = idx % 2;
+                    const x = colX[col];
+                    const y = yCol[col];
+                    doc.rect(x, y - 4, 5, 5);
+                    doc.text(item.label, x + 8, y);
+                    yCol[col] += 9;
+                });
+                return Math.max(yCol[0], yCol[1]);
+            };
+
+            const observacoes = (yStart) => {
+                doc.setFontSize(12);
+                doc.text('Observações', 14, yStart);
+                doc.roundedRect(14, yStart + 3, 182, 45, 2, 2);
+            };
+
+            leitos.forEach((leito, idx) => {
+                if (idx > 0) doc.addPage();
+                header(leito.identificacao);
+                const yAfterChecklist = checklist(72);
+                observacoes(yAfterChecklist + 6);
+            });
+
+            doc.save(`guias_${setor?.nome || 'setor'}.pdf`);
+            showSuccess('PDF gerado para impressão.');
+        }
+
+        // Dashboard
+        let chartDia, chartSetor;
+        async function loadHotelariaDashboard(skipFetch = false) {
+            try {
+                const labelsDia = [];
+                const dataDia = [];
+                const labelsSetor = [];
+                const dataSetor = [];
+
+                // Buscar dados reais da API
+                if (!skipFetch) {
+                    const res = await fetch('/api/hotelaria/checklists', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.length > 0) {
+                            const porDia = {};
+                            const porSetor = {};
+                            (data || []).forEach(item => {
+                                porDia[item.data] = (porDia[item.data] || 0) + 1;
+                                const nomeSetor = item.setor_nome || 'Setor';
+                                porSetor[nomeSetor] = (porSetor[nomeSetor] || 0) + 1;
+                            });
+                            Object.entries(porDia).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([d,c])=>{
+                                const date = new Date(d + 'T00:00:00');
+                                const dia = String(date.getDate()).padStart(2, '0');
+                                const mes = String(date.getMonth() + 1).padStart(2, '0');
+                                labelsDia.push(`${dia}/${mes}`);
+                                dataDia.push(c);
+                            });
+                            Object.entries(porSetor).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
+                                labelsSetor.push(s);
+                                dataSetor.push(c);
+                            });
+                            HOTELARIA_STATE._chartData = { labelsDia, dataDia, labelsSetor, dataSetor };
+                        }
+                    }
+                } else if (skipFetch && HOTELARIA_STATE._chartData) {
+                    ({ labelsDia, dataDia, labelsSetor, dataSetor } = HOTELARIA_STATE._chartData);
+                }
+
+                // Verificar se Chart.js está disponível
+                if (typeof Chart === 'undefined') {
+                    console.error('Chart.js não está carregado!');
+                    return;
+                }
+
+                // Aguardar um pouco para garantir que os elementos existam
+                setTimeout(() => {
+                    const ctxDia = document.getElementById('chartChecklistsDia');
+                    if (ctxDia) {
+                        const ctx = ctxDia.getContext('2d');
+                        if (ctx) {
+                            if (chartDia) chartDia.destroy();
+                            chartDia = new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: labelsDia,
+                                    datasets: [{
+                                        label: 'Checklists',
+                                        data: dataDia,
+                                        borderColor: '#10b981',
+                                        backgroundColor: 'rgba(16,185,129,0.2)',
+                                        tension: 0.2,
+                                        fill: true
+                                    }]
+                                },
+                                options: { 
+                                    responsive: true, 
+                                    maintainAspectRatio: false,
+                                    plugins: { 
+                                        legend: { display: false } 
+                                    },
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            ticks: {
+                                                stepSize: 1
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    const ctxSetor = document.getElementById('chartChecklistsSetor');
+                    if (ctxSetor) {
+                        const ctx = ctxSetor.getContext('2d');
+                        if (ctx) {
+                            if (chartSetor) chartSetor.destroy();
+                            chartSetor = new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: labelsSetor,
+                                    datasets: [{
+                                        label: 'Checklists',
+                                        data: dataSetor,
+                                        backgroundColor: 'rgba(59,130,246,0.6)'
+                                    }]
+                                },
+                                options: { 
+                                    responsive: true, 
+                                    maintainAspectRatio: false,
+                                    plugins: { 
+                                        legend: { display: false } 
+                                    },
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            ticks: {
+                                                stepSize: 1
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }, 300);
+            } catch (e) {
+                console.error('Erro ao carregar dashboard:', e);
+            }
+        }
+
+        async function salvarSetorAdmin() {
+            const nome = (document.getElementById('admSetorNome')?.value || '').trim();
+            const tipo = document.getElementById('admSetorTipo')?.value || 'Outro';
+            const status = document.getElementById('admSetorStatus')?.value || 'ativo';
+            if (!nome) { showWarning('Informe o nome do setor.'); return; }
+            try {
+                const res = await fetch('/api/hotelaria/setores', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ nome, tipo, status })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.error || 'Erro ao salvar setor');
+                    return;
+                }
+                showSuccess('Setor salvo.');
+                document.getElementById('admSetorNome').value = '';
+                loadHotelariaSetores();
+            } catch (e) {
+                showError('Erro ao salvar setor');
+            }
+        }
+
+        async function salvarEnfermariaAdmin() {
+            const setorId = document.getElementById('admEnfermariaSetor')?.value;
+            const nome = (document.getElementById('admEnfermariaNome')?.value || '').trim();
+            const status = document.getElementById('admEnfermariaStatus')?.value || 'ativo';
+            if (!setorId || !nome) { showWarning('Informe o setor e o nome da enfermaria.'); return; }
+            if (!token) { showError('Token de autenticação não encontrado. Faça login novamente.'); return; }
+            try {
+                const res = await fetch('/api/hotelaria/enfermarias', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ setor_id: setorId, nome, status })
+                });
+                
+                if (!res.ok) {
+                    let errorMsg = 'Erro ao salvar enfermaria';
+                    try {
+                        const errorData = await res.json();
+                        errorMsg = errorData.error || errorMsg;
+                        if (res.status === 404) {
+                            errorMsg = 'Rota não encontrada. Verifique se o servidor está rodando corretamente.';
+                        } else if (res.status === 403) {
+                            errorMsg = 'Acesso negado. Você não tem permissão para esta ação.';
+                        } else if (res.status === 401) {
+                            errorMsg = 'Sessão expirada. Faça login novamente.';
+                        }
+                    } catch (e) {
+                        errorMsg = `Erro ${res.status}: ${res.statusText}`;
+                    }
+                    showError(errorMsg);
+                    return;
+                }
+                
+                const data = await res.json();
+                showSuccess('Enfermaria salva com sucesso!');
+                document.getElementById('admEnfermariaNome').value = '';
+                await loadHotelariaEnfermarias(setorId);
+                await loadHotelariaSetores();
+                renderListasAdmin();
+            } catch (e) {
+                console.error('Erro ao salvar enfermaria:', e);
+                showError(`Erro de conexão: ${e.message}. Verifique se o servidor está rodando.`);
+            }
+        }
+
+        async function salvarLeitoAdmin() {
+            const setorId = document.getElementById('admLeitoSetor')?.value;
+            const enfermariaId = document.getElementById('admLeitoEnfermaria')?.value;
+            const ident = (document.getElementById('admLeitoIdent')?.value || '').trim();
+            const status = document.getElementById('admLeitoStatus')?.value || 'ativo';
+            if (!enfermariaId || !ident) { showWarning('Informe a enfermaria e a identificação do leito.'); return; }
+            try {
+                const res = await fetch('/api/hotelaria/leitos', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ setor_id: setorId, enfermaria_id: enfermariaId || null, identificacao: ident, status })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.error || 'Erro ao salvar leito');
+                    return;
+                }
+                showSuccess('Leito salvo.');
+                document.getElementById('admLeitoIdent').value = '';
+                loadHotelariaLeitos(HOTELARIA_STATE.selectedEnfermaria || enfermariaId);
+                loadHotelariaSetores();
+            } catch (e) {
+                showError('Erro ao salvar leito');
+            }
+        }
+
+        function renderListasAdmin() {
+            const listaSetores = document.getElementById('hotelListaSetores');
+            const listaEnfermarias = document.getElementById('hotelListaEnfermarias');
+            const listaLeitos = document.getElementById('hotelListaLeitos');
+            
+            if (listaSetores) {
+                const options = (HOTELARIA_STATE.setores || [])
+                    .filter(s => s.status === 'ativo')
+                    .map(s => `<option value="${s.id}">${s.nome} (${s.tipo || 'Tipo'})</option>`)
+                    .join('');
+                listaSetores.innerHTML = options 
+                    ? `<select id="adminSetorSelect" style="width:100%; padding:8px; border-radius:8px; border:1px solid #d1d5db; margin:6px 0;">
+                           <option value="">Selecione para inativar</option>
+                           ${options}
+                       </select>
+                       <div style="display:flex; gap:8px; margin-top:8px;">
+                           <button class="btn btn-danger" type="button" onclick="inativarSetorAdmin()">Inativar setor selecionado</button>
+                       </div>`
+                    : '<span style="color: #9ca3af;">Nenhum setor cadastrado ainda.</span>';
+            }
+            
+            if (listaEnfermarias) {
+                const setorId = document.getElementById('admEnfermariaSetor')?.value;
+                const enfermariasFiltradas = (HOTELARIA_STATE.enfermarias || [])
+                    .filter(e => !setorId || e.setor_id == setorId)
+                    .filter(e => e.status === 'ativo');
+                const optionsEnf = enfermariasFiltradas
+                    .map(e => {
+                        const setorNome = (HOTELARIA_STATE.setores || []).find(s => s.id == e.setor_id)?.nome || 'Setor';
+                        return `<option value="${e.id}">${e.nome} (${setorNome})</option>`;
+                    })
+                    .join('');
+                listaEnfermarias.innerHTML = optionsEnf
+                    ? `<select id="adminEnfermariaSelect" style="width:100%; padding:8px; border-radius:8px; border:1px solid #d1d5db; margin:6px 0;">
+                           <option value="">Selecione para inativar</option>
+                           ${optionsEnf}
+                       </select>
+                       <div style="display:flex; gap:8px; margin-top:8px;">
+                           <button class="btn btn-danger" type="button" onclick="inativarEnfermariaAdmin()">Inativar enfermaria selecionada</button>
+                       </div>`
+                    : `<span style="color: #9ca3af;">Nenhuma enfermaria cadastrada${setorId ? " neste setor" : ""} ainda.</span>`;
+            }
+            
+            if (listaLeitos) {
+                const enfermariaId = document.getElementById('admLeitoEnfermaria')?.value;
+                const leitosFiltrados = (HOTELARIA_STATE.leitos || [])
+                    .filter(l => !enfermariaId || l.enfermaria_id == enfermariaId)
+                    .filter(l => l.status === 'ativo');
+                const optionsLeitos = leitosFiltrados
+                    .map(l => {
+                        const enfNome = (HOTELARIA_STATE.enfermarias || []).find(e => e.id == l.enfermaria_id)?.nome || 'Enfermaria';
+                        return `<option value="${l.id}">${l.identificacao} (${enfNome})</option>`;
+                    })
+                    .join('');
+                listaLeitos.innerHTML = optionsLeitos
+                    ? `<select id="adminLeitoSelect" style="width:100%; padding:8px; border-radius:8px; border:1px solid #d1d5db; margin:6px 0;">
+                           <option value="">Selecione para inativar</option>
+                           ${optionsLeitos}
+                       </select>
+                       <div style="display:flex; gap:8px; margin-top:8px;">
+                           <button class="btn btn-danger" type="button" onclick="inativarLeitoAdmin()">Inativar leito selecionado</button>
+                       </div>`
+                    : `<span style="color: #9ca3af;">Nenhum leito cadastrado${enfermariaId ? " nesta enfermaria" : ""} ainda.</span>`;
+            }
+        }
+
+        async function inativarSetorAdmin() {
+            const sel = document.getElementById('adminSetorSelect');
+            if (!sel || !sel.value) { showWarning('Selecione um setor.'); return; }
+            const setorId = sel.value;
+            try {
+                const res = await fetch(`/api/hotelaria/setores/${setorId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 'inativo' })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.error || 'Erro ao inativar setor');
+                    return;
+                }
+                showSuccess('Setor inativado.');
+                loadHotelariaSetores();
+            } catch (e) {
+                showError('Erro ao inativar setor');
+            }
+        }
+
+        async function inativarEnfermariaAdmin() {
+            const sel = document.getElementById('adminEnfermariaSelect');
+            if (!sel || !sel.value) { showWarning('Selecione uma enfermaria.'); return; }
+            const enfermariaId = sel.value;
+            try {
+                const res = await fetch(`/api/hotelaria/enfermarias/${enfermariaId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 'inativo' })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.error || 'Erro ao inativar enfermaria');
+                    return;
+                }
+                showSuccess('Enfermaria inativada.');
+                const setorId = document.getElementById('admEnfermariaSetor')?.value;
+                if (setorId) loadHotelariaEnfermarias(setorId);
+                loadHotelariaSetores();
+            } catch (e) {
+                showError('Erro ao inativar enfermaria');
+            }
+        }
+
+        async function inativarLeitoAdmin() {
+            const sel = document.getElementById('adminLeitoSelect');
+            if (!sel || !sel.value) { showWarning('Selecione um leito.'); return; }
+            const leitoId = sel.value;
+            try {
+                const res = await fetch(`/api/hotelaria/leitos/${leitoId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 'inativo' })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.error || 'Erro ao inativar leito');
+                    return;
+                }
+                showSuccess('Leito inativado.');
+                loadHotelariaLeitos(HOTELARIA_STATE.selectedSetor);
+            } catch (e) {
+                showError('Erro ao inativar leito');
+            }
+        }
+
+        // ===== RELATÓRIOS DE HOTELARIA =====
+        let RELATORIOS_DATA = [];
+        let relCharts = {};
+
+        function formatDate(dateStr) {
+            if (!dateStr) return 'N/A';
+            try {
+                const date = new Date(dateStr + 'T00:00:00');
+                return date.toLocaleDateString('pt-BR');
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function safeParse(value, fallback = []) {
+            try {
+                return value ? JSON.parse(value) : fallback;
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        function initRelatorios() {
+            // Preencher selects de filtros
+            preencherSelectSetores('relSetor', true);
+            
+            // Event listeners
+            document.getElementById('btnBuscarRelatorios')?.addEventListener('click', buscarRelatorios);
+            document.getElementById('btnLimparFiltros')?.addEventListener('click', limparFiltrosRelatorios);
+            document.getElementById('btnExportarPDF')?.addEventListener('click', exportarRelatorioPDF);
+            document.getElementById('btnExportarExcel')?.addEventListener('click', exportarRelatorioExcel);
+            document.getElementById('btnImprimirRelatorio')?.addEventListener('click', imprimirRelatorio);
+            
+            // Quando setor mudar, atualizar enfermarias
+            document.getElementById('relSetor')?.addEventListener('change', (e) => {
+                const setorId = e.target.value;
+                if (setorId) {
+                    loadHotelariaEnfermarias(setorId, 'relEnfermaria');
+                } else {
+                    document.getElementById('relEnfermaria').innerHTML = '<option value="">Todas as enfermarias</option>';
+                    document.getElementById('relLeito').innerHTML = '<option value="">Todos os leitos</option>';
+                }
+            });
+            
+            // Quando enfermaria mudar, atualizar leitos
+            document.getElementById('relEnfermaria')?.addEventListener('change', (e) => {
+                const enfermariaId = e.target.value;
+                if (enfermariaId) {
+                    loadHotelariaLeitos(enfermariaId, 'relLeito');
+                } else {
+                    document.getElementById('relLeito').innerHTML = '<option value="">Todos os leitos</option>';
+                }
+            });
+        }
+
+        async function buscarRelatorios() {
+            const dataInicio = document.getElementById('relDataInicio')?.value;
+            const dataFim = document.getElementById('relDataFim')?.value;
+            const setorId = document.getElementById('relSetor')?.value;
+            const enfermariaId = document.getElementById('relEnfermaria')?.value;
+            const leitoId = document.getElementById('relLeito')?.value;
+            const colaborador = document.getElementById('relColaborador')?.value?.trim();
+
+            try {
+                let url = '/api/hotelaria/checklists?';
+                const params = new URLSearchParams();
+                if (dataInicio) params.append('data_inicio', dataInicio);
+                if (dataFim) params.append('data_fim', dataFim);
+                if (setorId) params.append('setor_id', setorId);
+                if (enfermariaId) params.append('enfermaria_id', enfermariaId);
+                if (leitoId) params.append('leito_id', leitoId);
+                if (colaborador) params.append('colaborador', colaborador);
+
+                const res = await fetch(url + params.toString(), {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) {
+                    showError('Erro ao buscar relatórios');
+                    return;
+                }
+
+                RELATORIOS_DATA = await res.json();
+                renderRelatorios();
+            } catch (e) {
+                console.error('Erro ao buscar relatórios:', e);
+                showError('Erro ao buscar relatórios');
+            }
+        }
+
+
+        function renderRelatorios() {
+            if (!RELATORIOS_DATA || RELATORIOS_DATA.length === 0) {
+                document.getElementById('relTabelaContainer').innerHTML = 
+                    '<p style="color: #6b7280; text-align: center; padding: 40px;">Nenhum resultado encontrado para os filtros selecionados.</p>';
+                document.getElementById('relEstatisticas').style.display = 'none';
+                document.getElementById('relGraficos').style.display = 'none';
+                return;
+            }
+
+            // Estatísticas
+            const totalChecklists = RELATORIOS_DATA.length;
+            const setoresUnicos = new Set(RELATORIOS_DATA.map(r => r.setor_id)).size;
+            const leitosUnicos = new Set(RELATORIOS_DATA.map(r => r.leito_id)).size;
+            const colaboradoresUnicos = new Set(RELATORIOS_DATA.map(r => r.colaborador)).size;
+
+            document.getElementById('relTotalChecklists').textContent = totalChecklists;
+            document.getElementById('relTotalSetores').textContent = setoresUnicos;
+            document.getElementById('relTotalLeitos').textContent = leitosUnicos;
+            document.getElementById('relTotalColaboradores').textContent = colaboradoresUnicos;
+            document.getElementById('relEstatisticas').style.display = 'grid';
+
+            // Tabela
+            renderTabelaRelatorios();
+
+            // Gráficos
+            renderGraficosRelatorios();
+            document.getElementById('relGraficos').style.display = 'grid';
+        }
+
+        function renderTabelaRelatorios() {
+            const container = document.getElementById('relTabelaContainer');
+            
+            // Mapear índices para nomes dos itens
+            const itensMap = {};
+            HOTELARIA_ITENS.forEach((item, idx) => {
+                itensMap[idx] = item.label;
+            });
+
+            let html = `
+                <table class="table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Data</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Setor</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Enfermaria</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Leito</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Colaborador</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Itens Verificados</th>
+                            <th style="padding: 12px; text-align: left; font-weight: 600;">Observações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            RELATORIOS_DATA.forEach(r => {
+                const itens = safeParse(r.itens, []);
+                const itensNomes = itens.map(i => itensMap[i] || `Item ${i}`).join(', ');
+                
+                html += `
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 12px;">${formatDate(r.data)}</td>
+                        <td style="padding: 12px;">${r.setor_nome || 'N/A'}</td>
+                        <td style="padding: 12px;">${r.enfermaria_nome || 'N/A'}</td>
+                        <td style="padding: 12px;">${r.leito_identificacao || 'N/A'}</td>
+                        <td style="padding: 12px;">${r.colaborador || 'N/A'}</td>
+                        <td style="padding: 12px; font-size: 12px;">${itensNomes || 'Nenhum'}</td>
+                        <td style="padding: 12px; max-width: 300px; word-wrap: break-word;">${r.observacoes || '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderGraficosRelatorios() {
+            // Dados por dia
+            const porDia = {};
+            RELATORIOS_DATA.forEach(r => {
+                const dia = r.data;
+                porDia[dia] = (porDia[dia] || 0) + 1;
+            });
+
+            // Dados por setor
+            const porSetor = {};
+            RELATORIOS_DATA.forEach(r => {
+                const setor = r.setor_nome || 'Sem setor';
+                porSetor[setor] = (porSetor[setor] || 0) + 1;
+            });
+
+            // Dados por colaborador
+            const porColab = {};
+            RELATORIOS_DATA.forEach(r => {
+                const colab = r.colaborador || 'Sem nome';
+                porColab[colab] = (porColab[colab] || 0) + 1;
+            });
+
+            // Itens mais verificados
+            const itensCount = {};
+            const itensMap = {};
+            HOTELARIA_ITENS.forEach((item, idx) => {
+                itensMap[idx] = item.label;
+            });
+            RELATORIOS_DATA.forEach(r => {
+                const itens = safeParse(r.itens, []);
+                itens.forEach(i => {
+                    const itemNome = itensMap[i] || `Item ${i}`;
+                    itensCount[itemNome] = (itensCount[itemNome] || 0) + 1;
+                });
+            });
+
+            // Destruir gráficos anteriores
+            Object.values(relCharts).forEach(chart => chart?.destroy());
+
+            // Gráfico por dia
+            const ctxDia = document.getElementById('chartRelDia');
+            if (ctxDia) {
+                relCharts.dia = new Chart(ctxDia, {
+                    type: 'line',
+                    data: {
+                        labels: Object.keys(porDia).sort(),
+                        datasets: [{
+                            label: 'Checklists',
+                            data: Object.keys(porDia).sort().map(d => porDia[d]),
+                            borderColor: 'rgb(75, 192, 192)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            // Gráfico por setor
+            const ctxSetor = document.getElementById('chartRelSetor');
+            if (ctxSetor) {
+                relCharts.setor = new Chart(ctxSetor, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(porSetor),
+                        datasets: [{
+                            label: 'Checklists',
+                            data: Object.values(porSetor),
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)'
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            // Gráfico por colaborador
+            const ctxColab = document.getElementById('chartRelColaborador');
+            if (ctxColab) {
+                const colabSorted = Object.entries(porColab).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                relCharts.colab = new Chart(ctxColab, {
+                    type: 'bar',
+                    data: {
+                        labels: colabSorted.map(c => c[0]),
+                        datasets: [{
+                            label: 'Checklists',
+                            data: colabSorted.map(c => c[1]),
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)'
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            // Gráfico de itens
+            const ctxItens = document.getElementById('chartRelItens');
+            if (ctxItens) {
+                const itensSorted = Object.entries(itensCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                relCharts.itens = new Chart(ctxItens, {
+                    type: 'doughnut',
+                    data: {
+                        labels: itensSorted.map(i => i[0]),
+                        datasets: [{
+                            data: itensSorted.map(i => i[1]),
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.6)',
+                                'rgba(54, 162, 235, 0.6)',
+                                'rgba(255, 206, 86, 0.6)',
+                                'rgba(75, 192, 192, 0.6)',
+                                'rgba(153, 102, 255, 0.6)',
+                                'rgba(255, 159, 64, 0.6)',
+                                'rgba(199, 199, 199, 0.6)',
+                                'rgba(83, 102, 255, 0.6)',
+                                'rgba(255, 99, 255, 0.6)',
+                                'rgba(99, 255, 132, 0.6)'
+                            ]
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+        }
+
+        function limparFiltrosRelatorios() {
+            document.getElementById('relDataInicio').value = '';
+            document.getElementById('relDataFim').value = '';
+            document.getElementById('relSetor').value = '';
+            document.getElementById('relEnfermaria').value = '';
+            document.getElementById('relLeito').value = '';
+            document.getElementById('relColaborador').value = '';
+            RELATORIOS_DATA = [];
+            document.getElementById('relTabelaContainer').innerHTML = 
+                '<p style="color: #6b7280; text-align: center; padding: 40px;">Selecione os filtros e clique em "Buscar" para visualizar os relatórios.</p>';
+            document.getElementById('relEstatisticas').style.display = 'none';
+            document.getElementById('relGraficos').style.display = 'none';
+            Object.values(relCharts).forEach(chart => chart?.destroy());
+            relCharts = {};
+        }
+
+        function exportarRelatorioPDF() {
+            if (!RELATORIOS_DATA || RELATORIOS_DATA.length === 0) {
+                showWarning('Não há dados para exportar. Faça uma busca primeiro.');
+                return;
+            }
+            // Implementar exportação PDF usando jsPDF
+            showInfo('Funcionalidade de exportação PDF em desenvolvimento.');
+        }
+
+        function exportarRelatorioExcel() {
+            if (!RELATORIOS_DATA || RELATORIOS_DATA.length === 0) {
+                showWarning('Não há dados para exportar. Faça uma busca primeiro.');
+                return;
+            }
+            // Implementar exportação Excel
+            showInfo('Funcionalidade de exportação Excel em desenvolvimento.');
+        }
+
+        function imprimirRelatorio() {
+            if (!RELATORIOS_DATA || RELATORIOS_DATA.length === 0) {
+                showWarning('Não há dados para imprimir. Faça uma busca primeiro.');
+                return;
+            }
+            window.print();
+        }
+
         // ===== DIGITAL NO CADASTRO =====
         // digital removida
 
@@ -3720,6 +5545,11 @@
 
         // Carregar dados iniciais
         loadSetores();
+        renderHotelariaUI();
+        // Se já houver token válido ao carregar, tentar carregar setores da Hotelaria
+        if (token && isTokenValid(token)) {
+            loadHotelariaSetores();
+        }
 
         // ====== CHAVES UI ======
         function loadChaves() {

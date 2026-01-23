@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Sistema de Recepção HSE</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/vendor/chart.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -293,8 +293,7 @@
 
         // Verificar autenticação
         if (!token) {
-            window.location.href = '/';
-            return;
+            window.location.href = '/index_old.html';
         }
 
         // Configurar headers para requisições
