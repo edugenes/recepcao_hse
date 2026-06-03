@@ -42,6 +42,7 @@ desktop.ini
 
 # Backups
 backup_*/
+cleanup_backup_*/
 *.backup
 
 # Build
@@ -52,6 +53,7 @@ build/
 tmp/
 temp/
 *.tmp
+.tmp-check.js
 
 # Certificados SSL
 *.pfx

@@ -21,7 +21,18 @@ const safeParse = (value, fallback = []) => {
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_env';
+
+const WEAK_SECRETS = ['change_me_in_env', 'altere_este_valor_em_producao', '', undefined];
+const JWT_SECRET = process.env.JWT_SECRET;
+if (WEAK_SECRETS.includes(JWT_SECRET)) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[ERRO CRÍTICO] JWT_SECRET não configurado. Defina JWT_SECRET no arquivo .env antes de iniciar em produção.');
+    process.exit(1);
+  } else {
+    console.warn('[AVISO] JWT_SECRET não configurado corretamente. Defina um valor seguro no arquivo .env antes de ir para produção.');
+  }
+}
+const JWT_SECRET_VALUE = JWT_SECRET || 'dev_only_secret_change_in_env';
 
 // Middleware - Helmet desabilitado para evitar problemas com HTTPS
 // Adicionar headers básicos manualmente
@@ -47,35 +58,48 @@ app.use((req, res, next) => {
   
   next();
 });
-// CORS será tratado pelo middleware customizado abaixo
-// Mantendo o pacote cors como fallback, mas nosso middleware customizado tem prioridade
-app.use(cors({ 
-  origin: true, // Permite qualquer origem
-  credentials: true, // Permite envio de cookies/credenciais
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+  : true;
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 }));
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Criar diretório uploads se não existir
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 // Configuração do Multer
 const storage = multer.diskStorage({
-  destination: 'uploads/',
+  destination: UPLOADS_DIR,
   filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, Date.now() + '-' + safeName);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('Apenas imagens são permitidas'));
+    }
+    cb(null, true);
+  }
+});
 
 // Inicializar banco de dados
-const db = new sqlite3.Database('recepcao.db');
+const DB_PATH = path.join(__dirname, 'recepcao.db');
+const db = new sqlite3.Database(DB_PATH);
 
 // Criar tabelas
 db.serialize(() => {
@@ -265,13 +289,12 @@ db.serialize(() => {
       }
     }
 
-    // Criar usuário admin padrão
-    const senhaHash = bcrypt.hashSync('admin123', 10);
-    db.run(`INSERT OR IGNORE INTO usuarios (id, nome, email, senha, role, username) VALUES (1, ?, ?, ?, ?, ?)`, 
-      ['Admin', 'admin@recepcao.com', senhaHash, 'admin', 'admin']);
-    
-    // Garantir que o admin sempre tenha role='admin' e username='admin'
-    db.run(`UPDATE usuarios SET role = 'admin', username = 'admin', senha = ? WHERE (email = 'admin@recepcao.com' OR id = 1)`, [senhaHash]);
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@recepcao.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const senhaHash = bcrypt.hashSync(adminPassword, 10);
+    db.run(`INSERT OR IGNORE INTO usuarios (id, nome, email, senha, role, username) VALUES (1, ?, ?, ?, ?, ?)`,
+      ['Admin', adminEmail, senhaHash, 'admin', 'admin']);
+    db.run(`UPDATE usuarios SET role = 'admin', username = 'admin' WHERE (email = ? OR id = 1)`, [adminEmail]);
   });
 });
 
@@ -402,7 +425,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Token requerido' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET_VALUE, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Token inválido - faça login novamente' });
     }
@@ -496,7 +519,7 @@ app.post('/api/login', (req, res) => {
       if (!user || !bcrypt.compareSync(senha, user.senha)) {
         return res.status(401).json({ error: 'Credenciais inválidas' });
       }
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '24h' });
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role || 'user' }, JWT_SECRET_VALUE, { expiresIn: '24h' });
       res.json({ token, user: { id: user.id, nome: user.nome, email: user.email, role: user.role || 'user' } });
     });
   });
@@ -1325,7 +1348,7 @@ const preventHttpsUpgrade = (req, res, next) => {
 };
 
 // Servir arquivos estáticos
-app.use('/uploads', preventHttpsUpgrade, express.static('uploads'));
+app.use('/uploads', preventHttpsUpgrade, express.static(UPLOADS_DIR));
 app.use(preventHttpsUpgrade, express.static(path.join(__dirname, 'public')));
 
 // Proxy local para carregar bibliotecas de CDN e evitar ORB
@@ -1407,29 +1430,24 @@ if (USE_HTTPS) {
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor rodando na porta ${PORT}`);
         console.log(`Acesse: http://localhost:${PORT} ou http://[IP_DO_SERVIDOR]:${PORT}`);
-        console.log('Credenciais: admin@recepcao.com / admin123');
       });
       return;
     }
     https.createServer(opts, app).listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor HTTPS rodando na porta ${PORT}`);
       console.log(`Acesse: https://localhost:${PORT} ou https://[IP_DO_SERVIDOR]:${PORT}`);
-      console.log('Credenciais: admin@recepcao.com / admin123');
     });
   } catch (e) {
     console.error('Falha ao iniciar HTTPS, caindo para HTTP:', e && e.message);
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor rodando na porta ${PORT}`);
       console.log(`Acesse: http://localhost:${PORT} ou http://[IP_DO_SERVIDOR]:${PORT}`);
-      console.log('Credenciais: admin@recepcao.com / admin123');
     });
   }
 } else {
   app.listen(PORT, '0.0.0.0', () => {
     const networkInterfaces = os.networkInterfaces();
     let serverIP = 'localhost';
-    
-    // Tentar encontrar o primeiro IP IPv4 não-localhost
     for (const interfaceName in networkInterfaces) {
       const addresses = networkInterfaces[interfaceName];
       for (const addr of addresses) {
@@ -1440,12 +1458,10 @@ if (USE_HTTPS) {
       }
       if (serverIP !== 'localhost') break;
     }
-    
     console.log(`Servidor rodando na porta ${PORT}`);
     console.log(`Acesse localmente: http://localhost:${PORT}`);
     if (serverIP !== 'localhost') {
       console.log(`Acesse pela rede: http://${serverIP}:${PORT}`);
     }
-    console.log('Credenciais: admin@recepcao.com / admin123');
   });
 }

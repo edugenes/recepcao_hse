@@ -83,9 +83,6 @@ async function main() {
     await run(`ALTER TABLE visitantes ADD COLUMN usuario_id INTEGER`);
   }
 
-  await run('DELETE FROM pacientes');
-  await run('DELETE FROM setores');
-
   const setores = [
     'Assessoria de Ensino e Pesquisa do HSE (HSE-AEPH)',
     'Assessoria de Pessoas/Recursos Humanos (APES-RH)',
